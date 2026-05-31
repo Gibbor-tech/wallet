@@ -13,6 +13,7 @@ import DepositApproval from './pages/DepositApproval';
 import WithdrawalProcessing from './pages/WithdrawalProcessing';
 import TransactionOverview from './pages/TransactionOverview';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import Referral from './pages/Referral';
 
 function PrivateRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
@@ -73,6 +74,11 @@ function App() {
           <Route path="/admin/deposits" element={
             <PrivateRoute adminOnly={true}>
               <DepositApproval />
+            </PrivateRoute>
+          } />
+          <Route path="/referral" element={
+            <PrivateRoute>
+              <Referral />
             </PrivateRoute>
           } />
           

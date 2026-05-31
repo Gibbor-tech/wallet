@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+const crypto = require('crypto');
 
 const app = express();
 
@@ -12,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/digital_wallet';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/wallet_app';
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('MongoDB connected successfully'))
@@ -20,17 +21,71 @@ mongoose.connect(MONGODB_URI)
 
 // ==================== MODELS ====================
 
-// User Model
+// User Model Schema
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    trim: true,
+    lowercase: true
+  },
   password: { type: String, required: true },
-  phone: { type: String, required: true, unique: true },
+  phone: { 
+    type: String, 
+    required: true, 
+    unique: true
+  },
   balance: { type: Number, default: 0 },
-  role: { type: String, enum: ['user', 'admin'], default: 'user' }
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  referralCode: { type: String, unique: true, sparse: true },
+  referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  referralBonusEarned: { type: Number, default: 0 },
+  referralCount: { type: Number, default: 0 }
 }, { timestamps: true });
 
-// System USSD Code Model (only one active at a time)
+// Generate referral code using crypto.randomBytes()
+userSchema.pre('save', async function () {
+  if (!this.referralCode) {
+    let code;
+    let exists = true;
+    let attempts = 0;
+
+    while (exists && attempts < 10) {
+      code = crypto.randomBytes(6).toString('hex').toUpperCase();
+
+      const existingUser = await mongoose.model('User').findOne({
+        referralCode: code
+      });
+
+      if (!existingUser) {
+        exists = false;
+      }
+
+      attempts++;
+    }
+
+    this.referralCode = code;
+  }
+});
+const User = mongoose.model('User', userSchema);
+
+// Referral Bonus Model
+const referralBonusSchema = new mongoose.Schema({
+  referrerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  referredUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  depositAmount: { type: Number, default: 0 },
+  bonusAmount: { type: Number, default: 0 },
+  percentage: { type: Number, default: 30 },
+  status: { type: String, enum: ['pending', 'paid'], default: 'pending' },
+  paidAt: { type: Date },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const ReferralBonus = mongoose.model('ReferralBonus', referralBonusSchema);
+
+// System USSD Code Model
 const systemUSSDCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
   isActive: { type: Boolean, default: true },
@@ -39,11 +94,14 @@ const systemUSSDCodeSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+const SystemUSSDCode = mongoose.model('SystemUSSDCode', systemUSSDCodeSchema);
+
+// Transaction Model
 const transactionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   type: { 
     type: String, 
-    enum: ['deposit', 'withdrawal', 'transfer', 'transfer_received'], 
+    enum: ['deposit', 'withdrawal', 'transfer', 'transfer_received', 'referral_bonus'], 
     required: true 
   },
   amount: { type: Number, required: true },
@@ -58,8 +116,7 @@ const transactionSchema = new mongoose.Schema({
   processedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   processedAt: { type: Date }
 }, { timestamps: true });
-const User = mongoose.model('User', userSchema);
-const SystemUSSDCode = mongoose.model('SystemUSSDCode', systemUSSDCodeSchema);
+
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
 // ==================== MIDDLEWARE ====================
@@ -68,11 +125,9 @@ const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) throw new Error();
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) throw new Error();
-
     req.user = user;
     next();
   } catch (error) {
@@ -103,11 +158,11 @@ const createDefaultAdmin = async () => {
         balance: 0
       });
       await admin.save();
-      console.log('=' .repeat(50));
+      console.log('='.repeat(50));
       console.log('Default admin created successfully!');
       console.log('Email: admin@wallet.com');
       console.log('Password: admin123');
-      console.log('=' .repeat(50));
+      console.log('='.repeat(50));
     }
   } catch (error) {
     console.error('Error creating admin:', error);
@@ -116,6 +171,7 @@ const createDefaultAdmin = async () => {
 
 // ==================== AUTH ROUTES ====================
 
+// Regular registration (NO referral)
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
@@ -141,10 +197,67 @@ app.post('/api/auth/register', async (req, res) => {
       user: { id: user._id, name: user.name, email: user.email, phone: user.phone, balance: user.balance, role: user.role }
     });
   } catch (error) {
+    console.error('Registration error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
+// Registration with referral code
+app.post('/api/auth/register-with-referral', async (req, res) => {
+  try {
+    const { name, email, password, phone, referralCode } = req.body;
+
+    if (!name || !email || !password || !phone) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    let referrer = null;
+    if (referralCode) {
+      referrer = await User.findOne({ referralCode, role: 'user' });
+      if (!referrer) {
+        return res.status(400).json({ message: 'Invalid referral code' });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({
+      name, email, password: hashedPassword, phone, role: 'user',
+      referredBy: referrer ? referrer._id : null
+    });
+    await user.save();
+
+    if (referrer) {
+      const pendingBonus = new ReferralBonus({
+        referrerId: referrer._id,
+        referredUserId: user._id,
+        depositAmount: 0,
+        bonusAmount: 0,
+        percentage: 30,
+        status: 'pending'
+      });
+      await pendingBonus.save();
+    }
+
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
+
+    res.status(201).json({
+      success: true,
+      message: referrer ? 'Account created! Your referrer gets 30% on your first deposit (min 1,000 RWF).' : 'Account created successfully!',
+      token,
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone, balance: user.balance, role: user.role, hasReferrer: !!referrer }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Login
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -152,9 +265,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-
     const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
-
     res.json({
       success: true,
       token,
@@ -165,6 +276,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Get current user
 app.get('/api/auth/me', auth, async (req, res) => {
   res.json({
     success: true,
@@ -172,93 +284,66 @@ app.get('/api/auth/me', auth, async (req, res) => {
   });
 });
 
-// ==================== SYSTEM USSD CODE ROUTES ====================
+// ==================== REFERRAL ROUTES ====================
 
-// Get active system USSD code
-app.get('/api/ussd/active', auth, async (req, res) => {
+app.get('/api/referral/info', auth, async (req, res) => {
   try {
-    const now = new Date();
-    const activeUSSD = await SystemUSSDCode.findOne({ 
-      isActive: true, 
-      expiresAt: { $gt: now } 
-    });
+    const user = await User.findById(req.user._id);
+    const completedReferrals = await ReferralBonus.countDocuments({ referrerId: req.user._id, status: 'paid', bonusAmount: { $gt: 0 } });
+    const pendingReferrals = await ReferralBonus.countDocuments({ referrerId: req.user._id, status: 'pending' });
+    const paidBonuses = await ReferralBonus.find({ referrerId: req.user._id, status: 'paid', bonusAmount: { $gt: 0 } });
+    const totalBonusEarned = paidBonuses.reduce((sum, bonus) => sum + bonus.bonusAmount, 0);
+    const recentCompleted = await ReferralBonus.find({ referrerId: req.user._id, status: 'paid', bonusAmount: { $gt: 0 } })
+      .populate('referredUserId', 'name email phone').sort({ paidAt: -1 }).limit(5);
+    const pendingReferralList = await ReferralBonus.find({ referrerId: req.user._id, status: 'pending' })
+      .populate('referredUserId', 'name email phone').sort({ createdAt: -1 });
     
     res.json({
       success: true,
-      ussdCode: activeUSSD || null
+      referral: {
+        referralCode: user.referralCode,
+        referralLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/register?ref=${user.referralCode}`,
+        completedReferrals, pendingReferrals, totalBonusEarned, recentCompleted, pendingReferralList,
+        bonusPercentage: 30, minDepositForBonus: 1000
+      }
     });
+  } catch (error) {
+    console.error('Referral info error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ==================== USSD ROUTES ====================
+
+app.get('/api/ussd/active', auth, async (req, res) => {
+  try {
+    const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
+    res.json({ success: true, ussdCode: activeUSSD || null });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// Admin: Set system USSD code
 app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
   try {
     const { ussdCode, validHours } = req.body;
-
-    if (!ussdCode) {
-      return res.status(400).json({ message: 'USSD code is required' });
-    }
-
-    if (!validHours || validHours < 1) {
-      return res.status(400).json({ message: 'Valid hours must be at least 1' });
-    }
-
-    // Deactivate all existing USSD codes
+    if (!ussdCode) return res.status(400).json({ message: 'USSD code is required' });
+    if (!validHours || validHours < 1) return res.status(400).json({ message: 'Valid hours must be at least 1' });
     await SystemUSSDCode.updateMany({}, { isActive: false });
-
-    // Calculate expiration date
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + validHours);
-
-    // Create new USSD code
-    const newUSSDCode = new SystemUSSDCode({
-      code: ussdCode,
-      expiresAt,
-      createdBy: req.user._id,
-      isActive: true
-    });
-
+    const newUSSDCode = new SystemUSSDCode({ code: ussdCode, expiresAt, createdBy: req.user._id, isActive: true });
     await newUSSDCode.save();
-
-    res.json({
-      success: true,
-      message: 'USSD code set successfully',
-      ussdCode: newUSSDCode
-    });
+    res.json({ success: true, message: 'USSD code set successfully', ussdCode: newUSSDCode });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// Admin: Get current active USSD code
-app.get('/api/admin/ussd/current', auth, adminAuth, async (req, res) => {
-  try {
-    const currentUSSD = await SystemUSSDCode.findOne({ isActive: true })
-      .populate('createdBy', 'name')
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      ussdCode: currentUSSD || null
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Admin: Get USSD code history
 app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
   try {
-    const history = await SystemUSSDCode.find({})
-      .populate('createdBy', 'name')
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      history
-    });
+    const history = await SystemUSSDCode.find({}).populate('createdBy', 'name').sort({ createdAt: -1 });
+    res.json({ success: true, history });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -266,104 +351,43 @@ app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
 
 // ==================== DEPOSIT ROUTES ====================
 
-// User submits deposit with amount
 app.post('/api/deposit/submit', auth, async (req, res) => {
   try {
     const { amount } = req.body;
-
-    if (!amount || amount < 100) {
-      return res.status(400).json({ message: 'Minimum deposit amount is 100 RWF' });
-    }
-
-    // Check if there's an active USSD code
-    const activeUSSD = await SystemUSSDCode.findOne({ 
-      isActive: true, 
-      expiresAt: { $gt: new Date() } 
-    });
-
-    if (!activeUSSD) {
-      return res.status(400).json({ message: 'No active USSD code available. Please contact admin.' });
-    }
-
-    // Check for existing pending deposit
-    const existingPending = await Transaction.findOne({ 
-      userId: req.user._id, 
-      type: 'deposit', 
-      status: 'pending' 
-    });
-
-    if (existingPending) {
-      return res.status(400).json({ message: 'You already have a pending deposit request' });
-    }
-
-    // Create transaction
+    if (!amount || amount < 100) return res.status(400).json({ message: 'Minimum deposit amount is 100 RWF' });
+    const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
+    if (!activeUSSD) return res.status(400).json({ message: 'No active USSD code available' });
+    const existingPending = await Transaction.findOne({ userId: req.user._id, type: 'deposit', status: 'pending' });
+    if (existingPending) return res.status(400).json({ message: 'You already have a pending deposit request' });
     const transaction = new Transaction({
-      userId: req.user._id,
-      type: 'deposit',
-      amount,
-      status: 'pending',
+      userId: req.user._id, type: 'deposit', amount, status: 'pending',
       description: `Deposit of RWF ${amount} - Use USSD: ${activeUSSD.code}`
     });
-
     await transaction.save();
-
-    res.json({
-      success: true,
-      message: 'Deposit request created',
-      transaction: {
-        id: transaction._id,
-        amount: transaction.amount,
-        ussdCode: activeUSSD.code,
-        status: transaction.status
-      }
-    });
+    res.json({ success: true, message: 'Deposit request created', transaction: { id: transaction._id, amount: transaction.amount, ussdCode: activeUSSD.code, status: transaction.status } });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// User confirms payment completed
 app.post('/api/deposit/confirm/:id', auth, async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
-    
-    if (!transaction) {
-      return res.status(404).json({ message: 'Transaction not found' });
-    }
-
-    if (transaction.userId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Unauthorized' });
-    }
-
-    if (transaction.status !== 'pending') {
-      return res.status(400).json({ message: 'Transaction already processed' });
-    }
-
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+    if (transaction.userId.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'Unauthorized' });
+    if (transaction.status !== 'pending') return res.status(400).json({ message: 'Transaction already processed' });
     transaction.description = 'Payment completed. Waiting for admin approval.';
     await transaction.save();
-
-    res.json({
-      success: true,
-      message: 'Payment confirmed! Admin will verify and approve your deposit.'
-    });
+    res.json({ success: true, message: 'Payment confirmed! Admin will verify and approve your deposit.' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// Get user's pending deposit
 app.get('/api/deposit/pending', auth, async (req, res) => {
   try {
-    const pending = await Transaction.findOne({ 
-      userId: req.user._id, 
-      type: 'deposit', 
-      status: 'pending' 
-    }).sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      deposit: pending || null
-    });
+    const pending = await Transaction.findOne({ userId: req.user._id, type: 'deposit', status: 'pending' }).sort({ createdAt: -1 });
+    res.json({ success: true, deposit: pending || null });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -371,297 +395,86 @@ app.get('/api/deposit/pending', auth, async (req, res) => {
 
 // ==================== WITHDRAWAL ROUTES ====================
 
-// User requests withdrawal (with both name and phone)
 app.post('/api/withdrawal/request', auth, async (req, res) => {
   try {
     const { receiverName, receiverPhone, amount } = req.body;
-
-    if (!receiverName || !receiverPhone || !amount) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
-
+    if (!receiverName || !receiverPhone || !amount) return res.status(400).json({ message: 'All fields are required' });
     const amountNum = parseFloat(amount);
-    
-    if (amountNum < 100) {
-      return res.status(400).json({ message: 'Minimum withdrawal amount is 100 RWF' });
-    }
-
-    if (req.user.balance < amountNum) {
-      return res.status(400).json({ message: `Insufficient balance. Your balance is RWF ${req.user.balance.toLocaleString()}` });
-    }
-
-    // Validate phone number (10 digits)
+    if (amountNum < 100) return res.status(400).json({ message: 'Minimum withdrawal amount is 100 RWF' });
+    if (req.user.balance < amountNum) return res.status(400).json({ message: `Insufficient balance` });
     const phoneRegex = /^[0-9]{10}$/;
-    if (!phoneRegex.test(receiverPhone)) {
-      return res.status(400).json({ message: 'Invalid phone number format. Use 10 digits (e.g., 0788888888)' });
-    }
-
-    // Create transaction
+    if (!phoneRegex.test(receiverPhone)) return res.status(400).json({ message: 'Invalid phone number format' });
     const transaction = new Transaction({
-      userId: req.user._id,
-      type: 'withdrawal',
-      amount: amountNum,
-      status: 'pending',
-      receiverName,
-      receiverPhone,
-      description: `Withdrawal request for ${receiverName} (${receiverPhone}) - Amount: RWF ${amountNum}`
+      userId: req.user._id, type: 'withdrawal', amount: amountNum, status: 'pending',
+      receiverName, receiverPhone, description: `Withdrawal request for ${receiverName}`
     });
-
     await transaction.save();
-
-    res.json({
-      success: true,
-      message: `Withdrawal request submitted successfully. Admin will process it shortly.`,
-      transactionId: transaction._id,
-      withdrawal: {
-        id: transaction._id,
-        amount: amountNum,
-        receiverName,
-        receiverPhone,
-        status: transaction.status
-      }
-    });
+    res.json({ success: true, message: 'Withdrawal request submitted', transactionId: transaction._id });
   } catch (error) {
-    console.error('Withdrawal request error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Get user's pending withdrawals
-app.get('/api/withdrawal/pending', auth, async (req, res) => {
-  try {
-    const pendingWithdrawals = await Transaction.find({ 
-      userId: req.user._id, 
-      type: 'withdrawal', 
-      status: 'pending' 
-    }).sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      withdrawals: pendingWithdrawals
-    });
-  } catch (error) {
-    console.error('Fetch pending withdrawals error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
+// ==================== TRANSFER ROUTES ====================
 
-// Get user's withdrawal history
-app.get('/api/withdrawal/history', auth, async (req, res) => {
-  try {
-    const withdrawals = await Transaction.find({ 
-      userId: req.user._id, 
-      type: 'withdrawal' 
-    }).sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      withdrawals
-    });
-  } catch (error) {
-    console.error('Fetch withdrawal history error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ==================== TRANSFER ROUTES (Person-to-Person) ====================
-
-// Search user by phone number (for transfer)
 app.get('/api/transfer/search', auth, async (req, res) => {
   try {
     const { phone } = req.query;
-    
-    if (!phone) {
-      return res.status(400).json({ message: 'Phone number is required' });
-    }
-
-    // Clean phone number (remove any non-digit characters)
+    if (!phone) return res.status(400).json({ message: 'Phone number is required' });
     const cleanPhone = phone.replace(/\D/g, '');
-    
-    // Find user by phone number (excluding current user)
-    const user = await User.findOne({ 
-      phone: cleanPhone, 
-      role: 'user' 
-    }).select('name phone');
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found with this phone number' });
-    }
-
-    // Check if user is trying to transfer to themselves
-    if (user._id.toString() === req.user._id.toString()) {
-      return res.status(400).json({ message: 'You cannot transfer money to yourself' });
-    }
-
-    res.json({
-      success: true,
-      user: {
-        name: user.name,
-        phone: user.phone
-      }
-    });
+    const user = await User.findOne({ phone: cleanPhone, role: 'user' }).select('name phone');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user._id.toString() === req.user._id.toString()) return res.status(400).json({ message: 'Cannot transfer to yourself' });
+    res.json({ success: true, user: { name: user.name, phone: user.phone } });
   } catch (error) {
-    console.error('Search user error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Send money to another user
 app.post('/api/transfer/send', auth, async (req, res) => {
   try {
     const { recipientPhone, amount, description } = req.body;
-
-    // Validate required fields
-    if (!recipientPhone || !amount) {
-      return res.status(400).json({ message: 'Recipient phone and amount are required' });
-    }
-
+    if (!recipientPhone || !amount) return res.status(400).json({ message: 'Recipient and amount required' });
     const amountNum = parseFloat(amount);
-    
-    // Validate amount
-    if (amountNum < 100) {
-      return res.status(400).json({ message: 'Minimum transfer amount is 100 RWF' });
-    }
-
-    if (isNaN(amountNum) || amountNum <= 0) {
-      return res.status(400).json({ message: 'Please enter a valid amount' });
-    }
-
-    // Check if sender has sufficient balance
-    if (req.user.balance < amountNum) {
-      return res.status(400).json({ 
-        message: `Insufficient balance. Your balance is RWF ${req.user.balance.toLocaleString()}` 
-      });
-    }
-
-    // Clean phone number
+    if (amountNum < 100) return res.status(400).json({ message: 'Minimum transfer is 100 RWF' });
+    if (req.user.balance < amountNum) return res.status(400).json({ message: 'Insufficient balance' });
     const cleanPhone = recipientPhone.replace(/\D/g, '');
-    
-    // Find recipient by phone number
     const recipient = await User.findOne({ phone: cleanPhone, role: 'user' });
+    if (!recipient) return res.status(404).json({ message: 'Recipient not found' });
     
-    if (!recipient) {
-      return res.status(404).json({ message: 'Recipient not found. Please check the phone number.' });
-    }
-
-    // Prevent self-transfer
-    if (recipient._id.toString() === req.user._id.toString()) {
-      return res.status(400).json({ message: 'You cannot transfer money to yourself' });
-    }
-
-    // Deduct from sender
-    req.user.balance -= amountNum;
-    await req.user.save();
-
-    // Add to recipient
+    // Use findByIdAndUpdate to avoid version conflicts
+    const sender = await User.findById(req.user._id);
+    sender.balance -= amountNum;
+    await sender.save();
+    
     recipient.balance += amountNum;
     await recipient.save();
-
-    // Create transaction record for sender (money sent OUT)
+    
     const senderTransaction = new Transaction({
-      userId: req.user._id,
-      type: 'transfer',
-      amount: amountNum,
-      status: 'completed',
-      receiverName: recipient.name,
-      receiverPhone: recipient.phone,
-      description: description || `Transfer to ${recipient.name} (${recipient.phone})`,
-      processedAt: new Date()
+      userId: sender._id, type: 'transfer', amount: amountNum, status: 'completed',
+      receiverName: recipient.name, receiverPhone: recipient.phone,
+      description: description || `Transfer to ${recipient.name}`
     });
     await senderTransaction.save();
-
-    // Create transaction record for recipient (money received IN)
+    
     const recipientTransaction = new Transaction({
-      userId: recipient._id,
-      type: 'transfer_received',
-      amount: amountNum,
-      status: 'completed',
-      receiverName: req.user.name,
-      receiverPhone: req.user.phone,
-      description: description || `Transfer received from ${req.user.name} (${req.user.phone})`,
-      processedAt: new Date()
+      userId: recipient._id, type: 'transfer_received', amount: amountNum, status: 'completed',
+      receiverName: sender.name, receiverPhone: sender.phone,
+      description: description || `Transfer from ${sender.name}`
     });
     await recipientTransaction.save();
-
-    res.json({
-      success: true,
-      message: `Successfully transferred RWF ${amountNum.toLocaleString()} to ${recipient.name} (${recipient.phone})`,
-      newBalance: req.user.balance,
-      transaction: {
-        id: senderTransaction._id,
-        amount: amountNum,
-        recipient: recipient.name,
-        recipientPhone: recipient.phone,
-        date: senderTransaction.createdAt,
-        description: senderTransaction.description
-      }
-    });
-  } catch (error) {
-    console.error('Transfer error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get user's transfer history (both sent and received)
-app.get('/api/transfer/history', auth, async (req, res) => {
-  try {
-    const transfers = await Transaction.find({
-      userId: req.user._id,
-      type: { $in: ['transfer', 'transfer_received'] }
-    }).sort({ createdAt: -1 });
     
-    res.json({
-      success: true,
-      transfers
-    });
+    res.json({ success: true, message: `Transferred RWF ${amountNum} to ${recipient.name}`, newBalance: sender.balance });
   } catch (error) {
-    console.error('Transfer history error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Get all transfers sent by user
-app.get('/api/transfer/sent', auth, async (req, res) => {
-  try {
-    const sentTransfers = await Transaction.find({
-      userId: req.user._id,
-      type: 'transfer'
-    }).sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      transfers: sentTransfers
-    });
-  } catch (error) {
-    console.error('Sent transfers error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get all transfers received by user
-app.get('/api/transfer/received', auth, async (req, res) => {
-  try {
-    const receivedTransfers = await Transaction.find({
-      userId: req.user._id,
-      type: 'transfer_received'
-    }).sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      transfers: receivedTransfers
-    });
-  } catch (error) {
-    console.error('Received transfers error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
 // ==================== TRANSACTION ROUTES ====================
 
 app.get('/api/transactions', auth, async (req, res) => {
   try {
-    const transactions = await Transaction.find({ userId: req.user._id })
-      .sort({ createdAt: -1 });
-    
+    const transactions = await Transaction.find({ userId: req.user._id }).sort({ createdAt: -1 });
     res.json({ success: true, transactions });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -677,15 +490,24 @@ app.get('/api/balance', auth, async (req, res) => {
   }
 });
 
-// ==================== ADMIN DEPOSIT APPROVAL ====================
+// ==================== ADMIN ROUTES ====================
+
+app.get('/api/admin/stats', auth, adminAuth, async (req, res) => {
+  try {
+    const totalUsers = await User.countDocuments({ role: 'user' });
+    const pendingDeposits = await Transaction.countDocuments({ type: 'deposit', status: 'pending' });
+    const pendingWithdrawals = await Transaction.countDocuments({ type: 'withdrawal', status: 'pending' });
+    const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
+    const totalVolume = await Transaction.aggregate([{ $match: { status: 'approved' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
+    res.json({ success: true, stats: { totalUsers, pendingDeposits, pendingWithdrawals, hasActiveUSSD: !!activeUSSD, activeUSSDCode: activeUSSD?.code || null, activeUSSDExpiry: activeUSSD?.expiresAt || null, totalVolume: totalVolume[0]?.total || 0 } });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
 app.get('/api/admin/deposits/pending', auth, adminAuth, async (req, res) => {
   try {
-    const deposits = await Transaction.find({ 
-      type: 'deposit', 
-      status: 'pending' 
-    }).populate('userId', 'name email phone');
-    
+    const deposits = await Transaction.find({ type: 'deposit', status: 'pending' }).populate('userId', 'name email phone');
     res.json({ success: true, deposits });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -695,56 +517,53 @@ app.get('/api/admin/deposits/pending', auth, adminAuth, async (req, res) => {
 app.post('/api/admin/deposits/approve/:id', auth, adminAuth, async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+    if (transaction.status !== 'pending') return res.status(400).json({ message: 'Transaction already processed' });
     
-    if (!transaction) {
-      return res.status(404).json({ message: 'Transaction not found' });
-    }
-
-    if (transaction.status !== 'pending') {
-      return res.status(400).json({ message: 'Transaction already processed' });
-    }
-
     const user = await User.findById(transaction.userId);
     user.balance += transaction.amount;
     await user.save();
-
+    
     transaction.status = 'approved';
     transaction.processedBy = req.user._id;
     transaction.processedAt = new Date();
-    transaction.description = `Deposit approved. RWF ${transaction.amount} credited.`;
     await transaction.save();
-
+    
+    // Referral bonus logic
+    const userDeposits = await Transaction.countDocuments({ userId: transaction.userId, type: 'deposit', status: 'approved' });
+    if (userDeposits === 1 && user.referredBy && transaction.amount >= 1000) {
+      const pendingBonus = await ReferralBonus.findOne({ referredUserId: transaction.userId, status: 'pending' });
+      if (pendingBonus) {
+        const referrer = await User.findById(user.referredBy);
+        if (referrer) {
+          const bonusAmount = (transaction.amount * 30) / 100;
+          pendingBonus.depositAmount = transaction.amount;
+          pendingBonus.bonusAmount = bonusAmount;
+          pendingBonus.status = 'paid';
+          pendingBonus.paidAt = new Date();
+          await pendingBonus.save();
+          
+          referrer.balance += bonusAmount;
+          referrer.referralCount = (referrer.referralCount || 0) + 1;
+          await referrer.save();
+          
+          const bonusTransaction = new Transaction({
+            userId: referrer._id, type: 'referral_bonus', amount: bonusAmount, status: 'approved',
+            description: `30% bonus for referring ${user.name}`
+          });
+          await bonusTransaction.save();
+        }
+      }
+    }
     res.json({ success: true, message: 'Deposit approved', userBalance: user.balance });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-app.post('/api/admin/deposits/reject/:id', auth, adminAuth, async (req, res) => {
-  try {
-    const transaction = await Transaction.findById(req.params.id);
-    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
-
-    transaction.status = 'rejected';
-    transaction.processedBy = req.user._id;
-    transaction.processedAt = new Date();
-    await transaction.save();
-
-    res.json({ success: true, message: 'Deposit rejected' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ==================== ADMIN WITHDRAWAL PROCESSING ====================
-
 app.get('/api/admin/withdrawals/pending', auth, adminAuth, async (req, res) => {
   try {
-    const withdrawals = await Transaction.find({ 
-      type: 'withdrawal', 
-      status: 'pending' 
-    }).populate('userId', 'name email phone balance');
-    
+    const withdrawals = await Transaction.find({ type: 'withdrawal', status: 'pending' }).populate('userId', 'name email phone balance');
     res.json({ success: true, withdrawals });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -754,55 +573,20 @@ app.get('/api/admin/withdrawals/pending', auth, adminAuth, async (req, res) => {
 app.post('/api/admin/withdrawals/complete/:id', auth, adminAuth, async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
-    
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
-
+    
     const user = await User.findById(transaction.userId);
-    if (user.balance < transaction.amount) {
-      return res.status(400).json({ message: 'Insufficient balance' });
-    }
-
+    if (user.balance < transaction.amount) return res.status(400).json({ message: 'Insufficient balance' });
+    
     user.balance -= transaction.amount;
     await user.save();
-
+    
     transaction.status = 'completed';
     transaction.processedBy = req.user._id;
     transaction.processedAt = new Date();
     await transaction.save();
-
+    
     res.json({ success: true, message: 'Withdrawal completed', userBalance: user.balance });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ==================== ADMIN STATISTICS ====================
-
-app.get('/api/admin/stats', auth, adminAuth, async (req, res) => {
-  try {
-    const totalUsers = await User.countDocuments({ role: 'user' });
-    const pendingDeposits = await Transaction.countDocuments({ type: 'deposit', status: 'pending' });
-    const pendingWithdrawals = await Transaction.countDocuments({ type: 'withdrawal', status: 'pending' });
-    
-    const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
-    
-    const totalVolume = await Transaction.aggregate([
-      { $match: { status: 'approved' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    
-    res.json({
-      success: true,
-      stats: {
-        totalUsers,
-        pendingDeposits,
-        pendingWithdrawals,
-        hasActiveUSSD: !!activeUSSD,
-        activeUSSDCode: activeUSSD?.code || null,
-        activeUSSDExpiry: activeUSSD?.expiresAt || null,
-        totalVolume: totalVolume[0]?.total || 0
-      }
-    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -814,12 +598,7 @@ app.get('/api/admin/transactions/all', auth, adminAuth, async (req, res) => {
     const filter = {};
     if (type) filter.type = type;
     if (status) filter.status = status;
-    
-    const transactions = await Transaction.find(filter)
-      .populate('userId', 'name email phone')
-      .populate('processedBy', 'name')
-      .sort({ createdAt: -1 });
-    
+    const transactions = await Transaction.find(filter).populate('userId', 'name email phone').populate('processedBy', 'name').sort({ createdAt: -1 });
     res.json({ success: true, transactions });
   } catch (error) {
     res.status(500).json({ message: error.message });
