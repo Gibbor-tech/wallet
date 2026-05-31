@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/wallet_app';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/digital_wallet';
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('MongoDB connected successfully'))
@@ -30,50 +30,56 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['user', 'admin'], default: 'user' }
 }, { timestamps: true });
 
-// Transaction Model
+// System USSD Code Model (only one active at a time)
+const systemUSSDCodeSchema = new mongoose.Schema({
+  code: { type: String, required: true, unique: true },
+  isActive: { type: Boolean, default: true },
+  expiresAt: { type: Date, required: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now }
+});
+
 const transactionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['deposit', 'withdrawal'], required: true },
+  type: { 
+    type: String, 
+    enum: ['deposit', 'withdrawal', 'transfer', 'transfer_received'], 
+    required: true 
+  },
   amount: { type: Number, required: true },
-  status: { type: String, enum: ['pending', 'approved', 'completed', 'rejected'], default: 'pending' },
+  status: { 
+    type: String, 
+    enum: ['pending', 'approved', 'completed', 'rejected', 'instant'], 
+    default: 'pending' 
+  },
   receiverName: { type: String },
   receiverPhone: { type: String },
-  ussdCode: { type: String },
   description: { type: String },
   processedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   processedAt: { type: Date }
 }, { timestamps: true });
-
 const User = mongoose.model('User', userSchema);
+const SystemUSSDCode = mongoose.model('SystemUSSDCode', systemUSSDCodeSchema);
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
 // ==================== MIDDLEWARE ====================
 
-// Authentication middleware
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      throw new Error();
-    }
+    if (!token) throw new Error();
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
     const user = await User.findById(decoded.userId).select('-password');
-    
-    if (!user) {
-      throw new Error();
-    }
+    if (!user) throw new Error();
 
     req.user = user;
-    req.token = token;
     next();
   } catch (error) {
     res.status(401).json({ message: 'Please authenticate' });
   }
 };
 
-// Admin middleware 
 const adminAuth = async (req, res, next) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ message: 'Admin access required' });
@@ -83,222 +89,6 @@ const adminAuth = async (req, res, next) => {
 
 // ==================== HELPER FUNCTIONS ====================
 
-// ==================== MODELS ====================
-
-// Deposit Request Model
-const depositRequestSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  amount: { type: Number, required: true },
-  ussdCode: { type: String },
-  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
-  requestedAt: { type: Date, default: Date.now },
-  approvedAt: { type: Date },
-  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
-});
-
-const DepositRequest = mongoose.model('DepositRequest', depositRequestSchema);
-
-// ==================== USER DEPOSIT ROUTES ====================
-
-// User requests deposit (enters amount only)
-app.post('/api/transactions/deposit/request', auth, async (req, res) => {
-  try {
-    const { amount } = req.body;
-
-    if (!amount || amount < 100) {
-      return res.status(400).json({ message: 'Minimum deposit amount is 100 RWF' });
-    }
-
-    // Check if user has a pending deposit request
-    const existingPending = await DepositRequest.findOne({ 
-      userId: req.user._id, 
-      status: 'pending' 
-    });
-    
-    if (existingPending) {
-      return res.status(400).json({ message: 'You already have a pending deposit request. Please wait for admin to process it.' });
-    }
-
-    // Create deposit request without USSD code (admin will add it)
-    const depositRequest = new DepositRequest({
-      userId: req.user._id,
-      amount,
-      status: 'pending'
-    });
-
-    await depositRequest.save();
-
-    // Create transaction record
-    const transaction = new Transaction({
-      userId: req.user._id,
-      type: 'deposit',
-      amount,
-      status: 'pending',
-      description: `Deposit request of RWF ${amount}`
-    });
-
-    await transaction.save();
-
-    res.json({
-      success: true,
-      message: 'Deposit request submitted successfully. Admin will provide USSD code shortly.',
-      depositRequestId: depositRequest._id
-    });
-  } catch (error) {
-    console.error('Deposit request error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// User gets their pending deposit request (to see USSD code when admin adds it)
-app.get('/api/transactions/my-pending-deposit', auth, async (req, res) => {
-  try {
-    const pendingDeposit = await DepositRequest.findOne({ 
-      userId: req.user._id, 
-      status: 'pending' 
-    }).sort({ requestedAt: -1 });
-    
-    res.json({
-      success: true,
-      deposit: pendingDeposit || null
-    });
-  } catch (error) {
-    console.error('Error fetching pending deposit:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ==================== ADMIN DEPOSIT ROUTES ====================
-
-// Admin gets all pending deposit requests
-app.get('/api/admin/pending-deposits', auth, adminAuth, async (req, res) => {
-  try {
-    const deposits = await DepositRequest.find({ status: 'pending' })
-      .populate('userId', 'name email phone')
-      .sort({ requestedAt: -1 });
-    
-    res.json({
-      success: true,
-      deposits
-    });
-  } catch (error) {
-    console.error('Fetch pending deposits error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Admin sets USSD code for a deposit request
-app.post('/api/admin/deposit/set-ussd/:id', auth, adminAuth, async (req, res) => {
-  try {
-    const { ussdCode } = req.body;
-    const depositRequest = await DepositRequest.findById(req.params.id);
-    
-    if (!depositRequest) {
-      return res.status(404).json({ message: 'Deposit request not found' });
-    }
-
-    if (depositRequest.status !== 'pending') {
-      return res.status(400).json({ message: 'Deposit request already processed' });
-    }
-
-    if (!ussdCode) {
-      return res.status(400).json({ message: 'USSD code is required' });
-    }
-
-    // Update deposit request with USSD code
-    depositRequest.ussdCode = ussdCode;
-    await depositRequest.save();
-
-    // Update transaction
-    await Transaction.findOneAndUpdate(
-      { userId: depositRequest.userId, type: 'deposit', status: 'pending' },
-      { ussdCode, description: `USSD Code: ${ussdCode} - Please dial to complete payment` }
-    );
-
-    res.json({
-      success: true,
-      message: 'USSD code set successfully. User can now complete the payment.',
-      depositRequest
-    });
-  } catch (error) {
-    console.error('Set USSD code error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Admin approves deposit (after user has paid)
-app.post('/api/admin/deposit/approve/:id', auth, adminAuth, async (req, res) => {
-  try {
-    const depositRequest = await DepositRequest.findById(req.params.id);
-    
-    if (!depositRequest) {
-      return res.status(404).json({ message: 'Deposit request not found' });
-    }
-
-    if (depositRequest.status !== 'pending') {
-      return res.status(400).json({ message: 'Deposit already processed' });
-    }
-
-    if (!depositRequest.ussdCode) {
-      return res.status(400).json({ message: 'Please set USSD code first before approving' });
-    }
-
-    // Update user balance
-    const user = await User.findById(depositRequest.userId);
-    user.balance += depositRequest.amount;
-    await user.save();
-
-    // Update deposit request
-    depositRequest.status = 'approved';
-    depositRequest.approvedAt = new Date();
-    depositRequest.approvedBy = req.user._id;
-    await depositRequest.save();
-
-    // Update transaction
-    await Transaction.findOneAndUpdate(
-      { userId: depositRequest.userId, type: 'deposit', status: 'pending' },
-      { status: 'approved', approvedAt: new Date(), processedBy: req.user._id }
-    );
-
-    res.json({
-      success: true,
-      message: 'Deposit approved successfully',
-      userBalance: user.balance
-    });
-  } catch (error) {
-    console.error('Approve deposit error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Admin rejects deposit
-app.post('/api/admin/deposit/reject/:id', auth, adminAuth, async (req, res) => {
-  try {
-    const depositRequest = await DepositRequest.findById(req.params.id);
-    
-    if (!depositRequest) {
-      return res.status(404).json({ message: 'Deposit request not found' });
-    }
-
-    depositRequest.status = 'rejected';
-    await depositRequest.save();
-
-    // Update transaction
-    await Transaction.findOneAndUpdate(
-      { userId: depositRequest.userId, type: 'deposit', status: 'pending' },
-      { status: 'rejected' }
-    );
-
-    res.json({
-      success: true,
-      message: 'Deposit rejected'
-    });
-  } catch (error) {
-    console.error('Reject deposit error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-// Create default admin if not exists
 const createDefaultAdmin = async () => {
   try {
     const adminExists = await User.findOne({ role: 'admin' });
@@ -326,125 +116,158 @@ const createDefaultAdmin = async () => {
 
 // ==================== AUTH ROUTES ====================
 
-// Register
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
 
-    // Validate input
     if (!name || !email || !password || !phone) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    // Check if user exists
     const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email or phone' });
+      return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
-    const user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      phone,
-      role: 'user'
-    });
-
+    const user = new User({ name, email, password: hashedPassword, phone, role: 'user' });
     await user.save();
 
-    // Generate token
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET || 'your_secret_key'
-    );
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
 
     res.status(201).json({
       success: true,
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        balance: user.balance,
-        role: user.role
-      }
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone, balance: user.balance, role: user.role }
     });
   } catch (error) {
-    console.error('Registration error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Login
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
-    }
-
-    // Find user
     const user = await User.findOne({ email });
-    if (!user) {
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Check password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Generate token
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET || 'your_secret_key'
-    );
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
 
     res.json({
       success: true,
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        balance: user.balance,
-        role: user.role
-      }
+      user: { id: user._id, name: user.name, email: user.email, phone: user.phone, balance: user.balance, role: user.role }
     });
   } catch (error) {
-    console.error('Login error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Get current user
 app.get('/api/auth/me', auth, async (req, res) => {
   res.json({
     success: true,
-    user: {
-      id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      phone: req.user.phone,
-      balance: req.user.balance,
-      role: req.user.role
-    }
+    user: { id: req.user._id, name: req.user.name, email: req.user.email, phone: req.user.phone, balance: req.user.balance, role: req.user.role }
   });
 });
 
-// ==================== TRANSACTION ROUTES ====================
+// ==================== SYSTEM USSD CODE ROUTES ====================
 
-// Request deposit
-app.post('/api/transactions/deposit/request', auth, async (req, res) => {
+// Get active system USSD code
+app.get('/api/ussd/active', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    const activeUSSD = await SystemUSSDCode.findOne({ 
+      isActive: true, 
+      expiresAt: { $gt: now } 
+    });
+    
+    res.json({
+      success: true,
+      ussdCode: activeUSSD || null
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Admin: Set system USSD code
+app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
+  try {
+    const { ussdCode, validHours } = req.body;
+
+    if (!ussdCode) {
+      return res.status(400).json({ message: 'USSD code is required' });
+    }
+
+    if (!validHours || validHours < 1) {
+      return res.status(400).json({ message: 'Valid hours must be at least 1' });
+    }
+
+    // Deactivate all existing USSD codes
+    await SystemUSSDCode.updateMany({}, { isActive: false });
+
+    // Calculate expiration date
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + validHours);
+
+    // Create new USSD code
+    const newUSSDCode = new SystemUSSDCode({
+      code: ussdCode,
+      expiresAt,
+      createdBy: req.user._id,
+      isActive: true
+    });
+
+    await newUSSDCode.save();
+
+    res.json({
+      success: true,
+      message: 'USSD code set successfully',
+      ussdCode: newUSSDCode
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Admin: Get current active USSD code
+app.get('/api/admin/ussd/current', auth, adminAuth, async (req, res) => {
+  try {
+    const currentUSSD = await SystemUSSDCode.findOne({ isActive: true })
+      .populate('createdBy', 'name')
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      ussdCode: currentUSSD || null
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Admin: Get USSD code history
+app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
+  try {
+    const history = await SystemUSSDCode.find({})
+      .populate('createdBy', 'name')
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      history
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ==================== DEPOSIT ROUTES ====================
+
+// User submits deposit with amount
+app.post('/api/deposit/submit', auth, async (req, res) => {
   try {
     const { amount } = req.body;
 
@@ -452,71 +275,151 @@ app.post('/api/transactions/deposit/request', auth, async (req, res) => {
       return res.status(400).json({ message: 'Minimum deposit amount is 100 RWF' });
     }
 
-    const ussdCode = generateUSSDCode();
+    // Check if there's an active USSD code
+    const activeUSSD = await SystemUSSDCode.findOne({ 
+      isActive: true, 
+      expiresAt: { $gt: new Date() } 
+    });
 
+    if (!activeUSSD) {
+      return res.status(400).json({ message: 'No active USSD code available. Please contact admin.' });
+    }
+
+    // Check for existing pending deposit
+    const existingPending = await Transaction.findOne({ 
+      userId: req.user._id, 
+      type: 'deposit', 
+      status: 'pending' 
+    });
+
+    if (existingPending) {
+      return res.status(400).json({ message: 'You already have a pending deposit request' });
+    }
+
+    // Create transaction
     const transaction = new Transaction({
       userId: req.user._id,
       type: 'deposit',
       amount,
       status: 'pending',
-      ussdCode
+      description: `Deposit of RWF ${amount} - Use USSD: ${activeUSSD.code}`
     });
 
     await transaction.save();
 
     res.json({
       success: true,
-      message: 'Deposit request created successfully',
-      ussdCode,
-      transactionId: transaction._id,
-      amount
+      message: 'Deposit request created',
+      transaction: {
+        id: transaction._id,
+        amount: transaction.amount,
+        ussdCode: activeUSSD.code,
+        status: transaction.status
+      }
     });
   } catch (error) {
-    console.error('Deposit request error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Request withdrawal
-app.post('/api/transactions/withdrawal/request', auth, async (req, res) => {
+// User confirms payment completed
+app.post('/api/deposit/confirm/:id', auth, async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    if (transaction.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    if (transaction.status !== 'pending') {
+      return res.status(400).json({ message: 'Transaction already processed' });
+    }
+
+    transaction.description = 'Payment completed. Waiting for admin approval.';
+    await transaction.save();
+
+    res.json({
+      success: true,
+      message: 'Payment confirmed! Admin will verify and approve your deposit.'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get user's pending deposit
+app.get('/api/deposit/pending', auth, async (req, res) => {
+  try {
+    const pending = await Transaction.findOne({ 
+      userId: req.user._id, 
+      type: 'deposit', 
+      status: 'pending' 
+    }).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      deposit: pending || null
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ==================== WITHDRAWAL ROUTES ====================
+
+// User requests withdrawal (with both name and phone)
+app.post('/api/withdrawal/request', auth, async (req, res) => {
   try {
     const { receiverName, receiverPhone, amount } = req.body;
 
-    // Validate inputs
     if (!receiverName || !receiverPhone || !amount) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (amount < 100) {
+    const amountNum = parseFloat(amount);
+    
+    if (amountNum < 100) {
       return res.status(400).json({ message: 'Minimum withdrawal amount is 100 RWF' });
     }
 
-    // Check if user has sufficient balance
-    if (req.user.balance < amount) {
-      return res.status(400).json({ message: 'Insufficient balance' });
+    if (req.user.balance < amountNum) {
+      return res.status(400).json({ message: `Insufficient balance. Your balance is RWF ${req.user.balance.toLocaleString()}` });
     }
 
-    // Validate phone number (basic validation)
+    // Validate phone number (10 digits)
     const phoneRegex = /^[0-9]{10}$/;
     if (!phoneRegex.test(receiverPhone)) {
-      return res.status(400).json({ message: 'Invalid phone number format. Use 10 digits' });
+      return res.status(400).json({ message: 'Invalid phone number format. Use 10 digits (e.g., 0788888888)' });
     }
 
+    // Create transaction
     const transaction = new Transaction({
       userId: req.user._id,
       type: 'withdrawal',
-      amount,
+      amount: amountNum,
       status: 'pending',
       receiverName,
-      receiverPhone
+      receiverPhone,
+      description: `Withdrawal request for ${receiverName} (${receiverPhone}) - Amount: RWF ${amountNum}`
     });
 
     await transaction.save();
 
     res.json({
       success: true,
-      message: 'Withdrawal request submitted successfully',
-      transactionId: transaction._id
+      message: `Withdrawal request submitted successfully. Admin will process it shortly.`,
+      transactionId: transaction._id,
+      withdrawal: {
+        id: transaction._id,
+        amount: amountNum,
+        receiverName,
+        receiverPhone,
+        status: transaction.status
+      }
     });
   } catch (error) {
     console.error('Withdrawal request error:', error);
@@ -524,66 +427,18 @@ app.post('/api/transactions/withdrawal/request', auth, async (req, res) => {
   }
 });
 
-// Get user transactions
-app.get('/api/transactions/my-transactions', auth, async (req, res) => {
+// Get user's pending withdrawals
+app.get('/api/withdrawal/pending', auth, async (req, res) => {
   try {
-    const transactions = await Transaction.find({ userId: req.user._id })
-      .sort({ createdAt: -1 });
-    res.json({
-      success: true,
-      transactions
-    });
-  } catch (error) {
-    console.error('Fetch transactions error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Get user balance
-app.get('/api/transactions/balance', auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-    res.json({
-      success: true,
-      balance: user.balance
-    });
-  } catch (error) {
-    console.error('Fetch balance error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// ==================== ADMIN ROUTES ====================
-
-// Admin: Get all pending deposits
-app.get('/api/transactions/admin/pending-deposits', auth, adminAuth, async (req, res) => {
-  try {
-    const deposits = await Transaction.find({
-      type: 'deposit',
-      status: 'pending'
-    }).populate('userId', 'name email phone').sort({ createdAt: -1 });
+    const pendingWithdrawals = await Transaction.find({ 
+      userId: req.user._id, 
+      type: 'withdrawal', 
+      status: 'pending' 
+    }).sort({ createdAt: -1 });
     
     res.json({
       success: true,
-      deposits
-    });
-  } catch (error) {
-    console.error('Fetch pending deposits error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Admin: Get all pending withdrawals
-app.get('/api/transactions/admin/pending-withdrawals', auth, adminAuth, async (req, res) => {
-  try {
-    const withdrawals = await Transaction.find({
-      type: 'withdrawal',
-      status: 'pending'
-    }).populate('userId', 'name email phone balance').sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      withdrawals
+      withdrawals: pendingWithdrawals
     });
   } catch (error) {
     console.error('Fetch pending withdrawals error:', error);
@@ -591,47 +446,253 @@ app.get('/api/transactions/admin/pending-withdrawals', auth, adminAuth, async (r
   }
 });
 
-// Admin: Approve deposit
-app.post('/api/transactions/admin/approve-deposit/:id', auth, adminAuth, async (req, res) => {
+// Get user's withdrawal history
+app.get('/api/withdrawal/history', auth, async (req, res) => {
   try {
-    const transaction = await Transaction.findById(req.params.id);
+    const withdrawals = await Transaction.find({ 
+      userId: req.user._id, 
+      type: 'withdrawal' 
+    }).sort({ createdAt: -1 });
     
-    if (!transaction) {
-      return res.status(404).json({ message: 'Transaction not found' });
-    }
-
-    if (transaction.type !== 'deposit') {
-      return res.status(400).json({ message: 'Invalid transaction type' });
-    }
-
-    if (transaction.status !== 'pending') {
-      return res.status(400).json({ message: 'Transaction already processed' });
-    }
-
-    // Update user balance
-    const user = await User.findById(transaction.userId);
-    user.balance += transaction.amount;
-    await user.save();
-
-    // Update transaction
-    transaction.status = 'approved';
-    transaction.processedBy = req.user._id;
-    transaction.processedAt = new Date();
-    await transaction.save();
-
     res.json({
       success: true,
-      message: 'Deposit approved successfully',
-      userBalance: user.balance
+      withdrawals
     });
   } catch (error) {
-    console.error('Approve deposit error:', error);
+    console.error('Fetch withdrawal history error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Admin: Complete withdrawal
-app.post('/api/transactions/admin/complete-withdrawal/:id', auth, adminAuth, async (req, res) => {
+// ==================== TRANSFER ROUTES (Person-to-Person) ====================
+
+// Search user by phone number (for transfer)
+app.get('/api/transfer/search', auth, async (req, res) => {
+  try {
+    const { phone } = req.query;
+    
+    if (!phone) {
+      return res.status(400).json({ message: 'Phone number is required' });
+    }
+
+    // Clean phone number (remove any non-digit characters)
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    // Find user by phone number (excluding current user)
+    const user = await User.findOne({ 
+      phone: cleanPhone, 
+      role: 'user' 
+    }).select('name phone');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found with this phone number' });
+    }
+
+    // Check if user is trying to transfer to themselves
+    if (user._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ message: 'You cannot transfer money to yourself' });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        name: user.name,
+        phone: user.phone
+      }
+    });
+  } catch (error) {
+    console.error('Search user error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Send money to another user
+app.post('/api/transfer/send', auth, async (req, res) => {
+  try {
+    const { recipientPhone, amount, description } = req.body;
+
+    // Validate required fields
+    if (!recipientPhone || !amount) {
+      return res.status(400).json({ message: 'Recipient phone and amount are required' });
+    }
+
+    const amountNum = parseFloat(amount);
+    
+    // Validate amount
+    if (amountNum < 100) {
+      return res.status(400).json({ message: 'Minimum transfer amount is 100 RWF' });
+    }
+
+    if (isNaN(amountNum) || amountNum <= 0) {
+      return res.status(400).json({ message: 'Please enter a valid amount' });
+    }
+
+    // Check if sender has sufficient balance
+    if (req.user.balance < amountNum) {
+      return res.status(400).json({ 
+        message: `Insufficient balance. Your balance is RWF ${req.user.balance.toLocaleString()}` 
+      });
+    }
+
+    // Clean phone number
+    const cleanPhone = recipientPhone.replace(/\D/g, '');
+    
+    // Find recipient by phone number
+    const recipient = await User.findOne({ phone: cleanPhone, role: 'user' });
+    
+    if (!recipient) {
+      return res.status(404).json({ message: 'Recipient not found. Please check the phone number.' });
+    }
+
+    // Prevent self-transfer
+    if (recipient._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ message: 'You cannot transfer money to yourself' });
+    }
+
+    // Deduct from sender
+    req.user.balance -= amountNum;
+    await req.user.save();
+
+    // Add to recipient
+    recipient.balance += amountNum;
+    await recipient.save();
+
+    // Create transaction record for sender (money sent OUT)
+    const senderTransaction = new Transaction({
+      userId: req.user._id,
+      type: 'transfer',
+      amount: amountNum,
+      status: 'completed',
+      receiverName: recipient.name,
+      receiverPhone: recipient.phone,
+      description: description || `Transfer to ${recipient.name} (${recipient.phone})`,
+      processedAt: new Date()
+    });
+    await senderTransaction.save();
+
+    // Create transaction record for recipient (money received IN)
+    const recipientTransaction = new Transaction({
+      userId: recipient._id,
+      type: 'transfer_received',
+      amount: amountNum,
+      status: 'completed',
+      receiverName: req.user.name,
+      receiverPhone: req.user.phone,
+      description: description || `Transfer received from ${req.user.name} (${req.user.phone})`,
+      processedAt: new Date()
+    });
+    await recipientTransaction.save();
+
+    res.json({
+      success: true,
+      message: `Successfully transferred RWF ${amountNum.toLocaleString()} to ${recipient.name} (${recipient.phone})`,
+      newBalance: req.user.balance,
+      transaction: {
+        id: senderTransaction._id,
+        amount: amountNum,
+        recipient: recipient.name,
+        recipientPhone: recipient.phone,
+        date: senderTransaction.createdAt,
+        description: senderTransaction.description
+      }
+    });
+  } catch (error) {
+    console.error('Transfer error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get user's transfer history (both sent and received)
+app.get('/api/transfer/history', auth, async (req, res) => {
+  try {
+    const transfers = await Transaction.find({
+      userId: req.user._id,
+      type: { $in: ['transfer', 'transfer_received'] }
+    }).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      transfers
+    });
+  } catch (error) {
+    console.error('Transfer history error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get all transfers sent by user
+app.get('/api/transfer/sent', auth, async (req, res) => {
+  try {
+    const sentTransfers = await Transaction.find({
+      userId: req.user._id,
+      type: 'transfer'
+    }).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      transfers: sentTransfers
+    });
+  } catch (error) {
+    console.error('Sent transfers error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get all transfers received by user
+app.get('/api/transfer/received', auth, async (req, res) => {
+  try {
+    const receivedTransfers = await Transaction.find({
+      userId: req.user._id,
+      type: 'transfer_received'
+    }).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      transfers: receivedTransfers
+    });
+  } catch (error) {
+    console.error('Received transfers error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+// ==================== TRANSACTION ROUTES ====================
+
+app.get('/api/transactions', auth, async (req, res) => {
+  try {
+    const transactions = await Transaction.find({ userId: req.user._id })
+      .sort({ createdAt: -1 });
+    
+    res.json({ success: true, transactions });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/api/balance', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    res.json({ success: true, balance: user.balance });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ==================== ADMIN DEPOSIT APPROVAL ====================
+
+app.get('/api/admin/deposits/pending', auth, adminAuth, async (req, res) => {
+  try {
+    const deposits = await Transaction.find({ 
+      type: 'deposit', 
+      status: 'pending' 
+    }).populate('userId', 'name email phone');
+    
+    res.json({ success: true, deposits });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/admin/deposits/approve/:id', auth, adminAuth, async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
     
@@ -639,146 +700,139 @@ app.post('/api/transactions/admin/complete-withdrawal/:id', auth, adminAuth, asy
       return res.status(404).json({ message: 'Transaction not found' });
     }
 
-    if (transaction.type !== 'withdrawal') {
-      return res.status(400).json({ message: 'Invalid transaction type' });
-    }
-
     if (transaction.status !== 'pending') {
       return res.status(400).json({ message: 'Transaction already processed' });
     }
 
-    // Get user and check balance again
     const user = await User.findById(transaction.userId);
+    user.balance += transaction.amount;
+    await user.save();
+
+    transaction.status = 'approved';
+    transaction.processedBy = req.user._id;
+    transaction.processedAt = new Date();
+    transaction.description = `Deposit approved. RWF ${transaction.amount} credited.`;
+    await transaction.save();
+
+    res.json({ success: true, message: 'Deposit approved', userBalance: user.balance });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/admin/deposits/reject/:id', auth, adminAuth, async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+
+    transaction.status = 'rejected';
+    transaction.processedBy = req.user._id;
+    transaction.processedAt = new Date();
+    await transaction.save();
+
+    res.json({ success: true, message: 'Deposit rejected' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ==================== ADMIN WITHDRAWAL PROCESSING ====================
+
+app.get('/api/admin/withdrawals/pending', auth, adminAuth, async (req, res) => {
+  try {
+    const withdrawals = await Transaction.find({ 
+      type: 'withdrawal', 
+      status: 'pending' 
+    }).populate('userId', 'name email phone balance');
     
+    res.json({ success: true, withdrawals });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/admin/withdrawals/complete/:id', auth, adminAuth, async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    
+    if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+
+    const user = await User.findById(transaction.userId);
     if (user.balance < transaction.amount) {
       return res.status(400).json({ message: 'Insufficient balance' });
     }
 
-    // Deduct from user balance
     user.balance -= transaction.amount;
     await user.save();
 
-    // Update transaction
     transaction.status = 'completed';
     transaction.processedBy = req.user._id;
     transaction.processedAt = new Date();
     await transaction.save();
 
-    res.json({
-      success: true,
-      message: 'Withdrawal completed successfully',
-      userBalance: user.balance
-    });
+    res.json({ success: true, message: 'Withdrawal completed', userBalance: user.balance });
   } catch (error) {
-    console.error('Complete withdrawal error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Admin: Get all transactions with filters
-app.get('/api/transactions/admin/all-transactions', auth, adminAuth, async (req, res) => {
-  try {
-    const { type, status } = req.query;
-    const filter = {};
-    
-    if (type) filter.type = type;
-    if (status) filter.status = status;
-    
-    const transactions = await Transaction.find(filter)
-      .populate('userId', 'name email phone')
-      .populate('processedBy', 'name email')
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      transactions
-    });
-  } catch (error) {
-    console.error('Fetch all transactions error:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
+// ==================== ADMIN STATISTICS ====================
 
-// Admin: Get statistics
-app.get('/api/transactions/admin/stats', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/stats', auth, adminAuth, async (req, res) => {
   try {
-    const pendingDeposits = await Transaction.countDocuments({
-      type: 'deposit',
-      status: 'pending'
-    });
-    
-    const pendingWithdrawals = await Transaction.countDocuments({
-      type: 'withdrawal',
-      status: 'pending'
-    });
-    
     const totalUsers = await User.countDocuments({ role: 'user' });
+    const pendingDeposits = await Transaction.countDocuments({ type: 'deposit', status: 'pending' });
+    const pendingWithdrawals = await Transaction.countDocuments({ type: 'withdrawal', status: 'pending' });
     
-    const totalTransactions = await Transaction.countDocuments();
+    const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
     
     const totalVolume = await Transaction.aggregate([
-      { $match: { status: { $in: ['approved', 'completed'] } } },
+      { $match: { status: 'approved' } },
       { $group: { _id: null, total: { $sum: '$amount' } } }
     ]);
     
     res.json({
       success: true,
       stats: {
+        totalUsers,
         pendingDeposits,
         pendingWithdrawals,
-        totalUsers,
-        totalTransactions,
+        hasActiveUSSD: !!activeUSSD,
+        activeUSSDCode: activeUSSD?.code || null,
+        activeUSSDExpiry: activeUSSD?.expiresAt || null,
         totalVolume: totalVolume[0]?.total || 0
       }
     });
   } catch (error) {
-    console.error('Fetch stats error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
-// Admin: Get all users
-app.get('/api/transactions/admin/users', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/transactions/all', auth, adminAuth, async (req, res) => {
   try {
-    const users = await User.find({}, '-password').sort({ createdAt: -1 });
-    res.json({
-      success: true,
-      users
-    });
+    const { type, status } = req.query;
+    const filter = {};
+    if (type) filter.type = type;
+    if (status) filter.status = status;
+    
+    const transactions = await Transaction.find(filter)
+      .populate('userId', 'name email phone')
+      .populate('processedBy', 'name')
+      .sort({ createdAt: -1 });
+    
+    res.json({ success: true, transactions });
   } catch (error) {
-    console.error('Fetch users error:', error);
     res.status(500).json({ message: error.message });
   }
-});
-
-// ==================== HEALTH CHECK ====================
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
-});
-
-// ==================== ERROR HANDLING ====================
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('Global error:', err);
-  res.status(500).json({ message: 'Something went wrong!' });
 });
 
 // ==================== START SERVER ====================
 
 const PORT = process.env.PORT || 5000;
 
-// Create default admin and start server
 createDefaultAdmin().then(() => {
   app.listen(PORT, () => {
-    console.log(`\n🚀 Server is running on port ${PORT}`);
-    console.log(`📍 API URL: http://localhost:${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/api/health\n`);
+    console.log(`\n🚀 Server running on port ${PORT}`);
+    console.log(`📍 http://localhost:${PORT}`);
   });
 });

@@ -3,9 +3,11 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import DepositRequest from './pages/DepositRequest';
-import WithdrawalRequest from './pages/WithdrawalRequest';
-import TransactionHistory from './pages/TransactionHistory';
+import Deposit from './pages/Deposit';
+import Transfer from './pages/Transfer';
+import Withdrawal from './pages/Withdrawal';
+import Transactions from './pages/Transactions';
+import TermsAndConditions from './pages/TermsAndConditions';
 import AdminDashboard from './pages/AdminDashboard';
 import DepositApproval from './pages/DepositApproval';
 import WithdrawalProcessing from './pages/WithdrawalProcessing';
@@ -31,6 +33,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/terms" element={<TermsAndConditions />} />
           
           <Route path="/dashboard" element={
             <PrivateRoute>
@@ -40,19 +43,24 @@ function App() {
           
           <Route path="/deposit" element={
             <PrivateRoute>
-              <DepositRequest />
+              <Deposit />
             </PrivateRoute>
           } />
           
           <Route path="/withdrawal" element={
             <PrivateRoute>
-              <WithdrawalRequest />
+              <Withdrawal />
+            </PrivateRoute>
+          } />
+          <Route path="/transfer" element={
+            <PrivateRoute>
+              <Transfer />
             </PrivateRoute>
           } />
           
           <Route path="/transactions" element={
             <PrivateRoute>
-              <TransactionHistory />
+              <Transactions />
             </PrivateRoute>
           } />
           

@@ -15,24 +15,27 @@ function Layout({ children }) {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/deposit', label: 'Deposit', icon: '💰' },
+    { path: '/transfer', label: 'Transfer', icon: '🔄' },
     { path: '/withdrawal', label: 'Withdraw', icon: '💸' },
     { path: '/transactions', label: 'Transactions', icon: '📋' },
   ];
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sidebar */}
       <aside className="fixed left-0 top-0 h-full w-64 bg-white shadow-lg">
         <div className="p-6">
           <div className="flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg"></div>
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold">W</span>
+            </div>
             <h1 className="text-xl font-bold text-gray-800">WalletPay</h1>
           </div>
           
           <div className="mb-8 p-4 bg-gray-50 rounded-lg">
             <p className="text-xs text-gray-500">LOGGED IN AS</p>
             <p className="font-semibold text-gray-800">{user?.name || 'User'}</p>
-            <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+            <p className="text-xs text-gray-500">{user?.phone}</p>
+            <p className="text-xs text-gray-500 capitalize mt-1">{user?.role}</p>
           </div>
 
           <nav className="space-y-2">
@@ -62,7 +65,6 @@ function Layout({ children }) {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="ml-64 p-8">
         <div className="max-w-6xl mx-auto">
           {children}

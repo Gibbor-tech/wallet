@@ -11,6 +11,7 @@ function Register() {
     confirmPassword: ''
   });
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
 
@@ -20,9 +21,18 @@ function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    setError('');
     
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+    
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      setLoading(false);
       return;
     }
     
@@ -36,19 +46,24 @@ function Register() {
       navigate('/dashboard');
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-white text-2xl font-bold">W</span>
+          </div>
           <h1 className="text-3xl font-bold text-gray-800">Create Account</h1>
           <p className="text-gray-600 mt-2">Sign up to get started</p>
         </div>
         
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4">
             {error}
           </div>
         )}
@@ -61,7 +76,8 @@ function Register() {
               name="name"
               value={formData.name}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter your full name"
               required
             />
           </div>
@@ -73,7 +89,8 @@ function Register() {
               name="email"
               value={formData.email}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter your email"
               required
             />
           </div>
@@ -85,7 +102,7 @@ function Register() {
               name="phone"
               value={formData.phone}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="0788888888"
               required
             />
@@ -98,7 +115,8 @@ function Register() {
               name="password"
               value={formData.password}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Create a password"
               required
             />
           </div>
@@ -110,16 +128,18 @@ function Register() {
               name="confirmPassword"
               value={formData.confirmPassword}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Confirm your password"
               required
             />
           </div>
           
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-200"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition duration-200 disabled:opacity-50"
           >
-            Register
+            {loading ? 'Creating account...' : 'Register'}
           </button>
         </form>
         

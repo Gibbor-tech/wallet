@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 
 function TransactionOverview() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [filter, setFilter] = useState({ type: '', status: '' });
   const navigate = useNavigate();
-  const { token } = useAuth(); // Make sure you have token in your auth context
 
   useEffect(() => {
     fetchTransactions();
@@ -17,47 +14,23 @@ function TransactionOverview() {
 
   const fetchTransactions = async () => {
     setLoading(true);
-    setError(null);
     try {
       const params = new URLSearchParams();
       if (filter.type) params.append('type', filter.type);
       if (filter.status) params.append('status', filter.status);
       
-      const response = await axios.get(
-        `http://localhost:5000/api/transactions/admin/all-transactions?${params}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        }
-      );
-      
-      console.log('Full response:', response);
-      console.log('Response data:', response.data);
-      
-      // Handle different response structures
-      let transactionsData = [];
+      const response = await axios.get(`http://localhost:5000/api/admin/transactions/all?${params}`);
+      console.log('Transactions response:', response.data);
       
       if (response.data.success && Array.isArray(response.data.transactions)) {
-        transactionsData = response.data.transactions;
+        setTransactions(response.data.transactions);
       } else if (Array.isArray(response.data)) {
-        transactionsData = response.data;
-      } else if (response.data.transactions && Array.isArray(response.data.transactions)) {
-        transactionsData = response.data.transactions;
+        setTransactions(response.data);
       } else {
-        console.warn('Unexpected response structure:', response.data);
-        transactionsData = [];
-      }
-      
-      console.log('Processed transactions:', transactionsData);
-      setTransactions(transactionsData);
-      
-      if (transactionsData.length === 0) {
-        console.log('No transactions found');
+        setTransactions([]);
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
-      setError(error.response?.data?.message || error.message);
       setTransactions([]);
     } finally {
       setLoading(false);
@@ -85,25 +58,6 @@ function TransactionOverview() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-100 p-6">
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-            <p className="font-bold">Error loading transactions</p>
-            <p>{error}</p>
-            <button
-              onClick={fetchTransactions}
-              className="mt-3 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-white shadow-md p-4">
@@ -120,7 +74,6 @@ function TransactionOverview() {
 
       <div className="container mx-auto p-6">
         <div className="bg-white rounded-lg shadow-md p-6">
-          {/* Filter Controls */}
           <div className="mb-6 flex gap-4 flex-wrap">
             <select
               value={filter.type}
@@ -159,80 +112,74 @@ function TransactionOverview() {
             </button>
           </div>
 
-          {/* Transactions Table */}
           {transactions.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500 text-lg">No transactions found</p>
-              <p className="text-gray-400 text-sm mt-2">Try changing your filters or check back later</p>
+              <p className="text-gray-400 text-sm mt-2">Try changing your filters</p>
             </div>
           ) : (
-            <>
-              <div className="mb-4 text-sm text-gray-600">
-                Showing {transactions.length} transaction(s)
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full bg-white">
-                  <thead>
-                    <tr className="bg-gray-100 border-b">
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">User</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Amount</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Receiver</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Processed By</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {transactions.map((transaction) => (
-                      <tr key={transaction._id} className="border-b hover:bg-gray-50 transition">
-                        <td className="px-4 py-3">
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white">
+                <thead>
+                  <tr className="bg-gray-100 border-b">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">User</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Amount</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Receiver</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Processed By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((transaction) => (
+                    <tr key={transaction._id} className="border-b hover:bg-gray-50 transition">
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-gray-900">{transaction.userId?.name || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{transaction.userId?.phone || 'N/A'}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`capitalize font-medium ${
+                          transaction.type === 'deposit' ? 'text-green-600' : 'text-purple-600'
+                        }`}>
+                          {transaction.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`font-semibold ${
+                          transaction.type === 'deposit' ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          RWF {transaction.amount?.toLocaleString() || 0}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(transaction.status)}`}>
+                          {transaction.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {transaction.receiverName ? (
                           <div>
-                            <p className="font-medium text-gray-900">{transaction.userId?.name || 'N/A'}</p>
-                            <p className="text-sm text-gray-500">{transaction.userId?.phone || 'N/A'}</p>
+                            <p className="text-sm font-medium text-gray-900">{transaction.receiverName}</p>
+                            <p className="text-xs text-gray-500">{transaction.receiverPhone}</p>
                           </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`capitalize font-medium ${
-                            transaction.type === 'deposit' ? 'text-green-600' : 'text-purple-600'
-                          }`}>
-                            {transaction.type}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`font-semibold ${
-                            transaction.type === 'deposit' ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            RWF {transaction.amount?.toLocaleString() || 0}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(transaction.status)}`}>
-                            {transaction.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {transaction.receiverName ? (
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">{transaction.receiverName}</p>
-                              <p className="text-xs text-gray-500">{transaction.receiverPhone}</p>
-                            </div>
-                          ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {transaction.createdAt ? new Date(transaction.createdAt).toLocaleString() : 'N/A'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {transaction.processedBy?.name || '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                        ) : (
+                          <span className="text-gray-400 text-sm">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {transaction.createdAt ? new Date(transaction.createdAt).toLocaleString() : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {transaction.processedBy?.name || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

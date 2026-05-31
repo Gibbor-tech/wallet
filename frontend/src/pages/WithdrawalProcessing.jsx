@@ -15,33 +15,26 @@ function WithdrawalProcessing() {
   const fetchWithdrawals = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5000/api/transactions/admin/pending-withdrawals');
-      console.log('Withdrawals response:', response.data);
-      
-      // Handle the response correctly
-      if (response.data.success && Array.isArray(response.data.withdrawals)) {
+      const response = await axios.get('http://localhost:5000/api/admin/withdrawals/pending');
+      if (response.data.success) {
         setWithdrawals(response.data.withdrawals);
-      } else if (Array.isArray(response.data)) {
-        setWithdrawals(response.data);
-      } else {
-        setWithdrawals([]);
       }
     } catch (error) {
       console.error('Error fetching withdrawals:', error);
-      setWithdrawals([]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleComplete = async (withdrawalId) => {
-    if (!confirm('Have you sent the money to the receiver? This action will deduct the amount from user\'s balance.')) {
+    const withdrawal = withdrawals.find(w => w._id === withdrawalId);
+    if (!confirm(`Have you sent RWF ${withdrawal.amount.toLocaleString()} to ${withdrawal.receiverPhone} (${withdrawal.receiverName})?`)) {
       return;
     }
     
     setProcessing(withdrawalId);
     try {
-      await axios.post(`http://localhost:5000/api/transactions/admin/complete-withdrawal/${withdrawalId}`);
+      await axios.post(`http://localhost:5000/api/admin/withdrawals/complete/${withdrawalId}`);
       alert('Withdrawal completed successfully!');
       fetchWithdrawals();
     } catch (error) {
@@ -89,21 +82,24 @@ function WithdrawalProcessing() {
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <p className="font-semibold text-lg">{withdrawal.userId?.name || 'Unknown User'}</p>
-                      <p className="text-gray-600">Sender Phone: {withdrawal.userId?.phone || 'N/A'}</p>
-                      <p className="text-gray-600">Sender Balance: RWF {withdrawal.userId?.balance?.toLocaleString() || 0}</p>
+                      <p className="text-gray-600">Email: {withdrawal.userId?.email || 'N/A'}</p>
+                      <p className="text-gray-600">User Phone: {withdrawal.userId?.phone || 'N/A'}</p>
                       
                       <div className="mt-3 p-3 bg-gray-50 rounded">
-                        <p className="font-semibold">Receiver Information:</p>
-                        <p className="text-gray-700">Name: {withdrawal.receiverName || 'N/A'}</p>
-                        <p className="text-gray-700">Phone: {withdrawal.receiverPhone || 'N/A'}</p>
+                        <p className="font-semibold">Withdrawal Details:</p>
+                        <p className="text-gray-700">Receiver Name: {withdrawal.receiverName || 'N/A'}</p>
+                        <p className="text-gray-700">Receiver Phone: <strong className="text-blue-600">{withdrawal.receiverPhone || 'N/A'}</strong></p>
+                        <p className="text-2xl font-bold text-purple-600 mt-2">
+                          Amount: RWF {withdrawal.amount?.toLocaleString() || 0}
+                        </p>
                       </div>
                       
-                      <p className="text-2xl font-bold text-purple-600 mt-2">
-                        Amount: RWF {withdrawal.amount?.toLocaleString() || 0}
+                      <p className="text-sm text-gray-500 mt-2">
+                        Requested: {new Date(withdrawal.createdAt).toLocaleString()}
                       </p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Requested: {withdrawal.createdAt ? new Date(withdrawal.createdAt).toLocaleString() : 'Unknown date'}
-                      </p>
+                      {withdrawal.description && (
+                        <p className="text-xs text-gray-400 mt-1">{withdrawal.description}</p>
+                      )}
                     </div>
                     <div className="ml-4">
                       <button

@@ -6,8 +6,6 @@ function DepositApproval() {
   const [deposits, setDeposits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
-  const [showUssdModal, setShowUssdModal] = useState(null);
-  const [ussdCode, setUssdCode] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -17,7 +15,7 @@ function DepositApproval() {
   const fetchDeposits = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5000/api/admin/pending-deposits');
+      const response = await axios.get('http://localhost:5000/api/admin/deposits/pending');
       if (response.data.success) {
         setDeposits(response.data.deposits);
       }
@@ -28,26 +26,6 @@ function DepositApproval() {
     }
   };
 
-  const handleSetUssdCode = async (depositId) => {
-    if (!ussdCode) {
-      alert('Please enter a USSD code');
-      return;
-    }
-    
-    setProcessing(depositId);
-    try {
-      await axios.post(`http://localhost:5000/api/admin/deposit/set-ussd/${depositId}`, { ussdCode });
-      alert('USSD code set successfully! User can now complete payment.');
-      setShowUssdModal(null);
-      setUssdCode('');
-      fetchDeposits();
-    } catch (error) {
-      alert('Error setting USSD code: ' + (error.response?.data?.message || error.message));
-    } finally {
-      setProcessing(null);
-    }
-  };
-
   const handleApprove = async (depositId) => {
     if (!confirm('Has the user completed the payment? This will credit their wallet.')) {
       return;
@@ -55,7 +33,7 @@ function DepositApproval() {
     
     setProcessing(depositId);
     try {
-      await axios.post(`http://localhost:5000/api/admin/deposit/approve/${depositId}`);
+      await axios.post(`http://localhost:5000/api/admin/deposits/approve/${depositId}`);
       alert('Deposit approved successfully! User balance updated.');
       fetchDeposits();
     } catch (error) {
@@ -72,7 +50,7 @@ function DepositApproval() {
     
     setProcessing(depositId);
     try {
-      await axios.post(`http://localhost:5000/api/admin/deposit/reject/${depositId}`);
+      await axios.post(`http://localhost:5000/api/admin/deposits/reject/${depositId}`);
       alert('Deposit rejected');
       fetchDeposits();
     } catch (error) {
@@ -125,42 +103,33 @@ function DepositApproval() {
                       <p className="text-2xl font-bold text-green-600 mt-2">
                         RWF {deposit.amount?.toLocaleString() || 0}
                       </p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Requested: {deposit.requestedAt ? new Date(deposit.requestedAt).toLocaleString() : 'Unknown date'}
-                      </p>
                       {deposit.ussdCode && (
                         <p className="text-sm text-blue-600 mt-1">
                           USSD Code: <span className="font-mono font-bold">{deposit.ussdCode}</span>
                         </p>
                       )}
+                      <p className="text-sm text-gray-500 mt-1">
+                        Requested: {new Date(deposit.createdAt).toLocaleString()}
+                      </p>
+                      {deposit.description && (
+                        <p className="text-sm text-gray-600 mt-1">{deposit.description}</p>
+                      )}
                     </div>
                     <div className="flex gap-2">
-                      {!deposit.ussdCode ? (
-                        <button
-                          onClick={() => setShowUssdModal(deposit._id)}
-                          disabled={processing === deposit._id}
-                          className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition"
-                        >
-                          Set USSD Code
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleApprove(deposit._id)}
-                            disabled={processing === deposit._id}
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
-                          >
-                            Approve & Credit
-                          </button>
-                          <button
-                            onClick={() => handleReject(deposit._id)}
-                            disabled={processing === deposit._id}
-                            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
-                          >
-                            Reject
-                          </button>
-                        </>
-                      )}
+                      <button
+                        onClick={() => handleApprove(deposit._id)}
+                        disabled={processing === deposit._id}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                      >
+                        {processing === deposit._id ? 'Processing...' : 'Approve & Credit'}
+                      </button>
+                      <button
+                        onClick={() => handleReject(deposit._id)}
+                        disabled={processing === deposit._id}
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -169,40 +138,6 @@ function DepositApproval() {
           )}
         </div>
       </div>
-
-      {/* USSD Code Modal */}
-      {showUssdModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold mb-4">Set USSD Code</h3>
-            <p className="text-gray-600 mb-4">Enter the USSD code for the user to dial:</p>
-            <input
-              type="text"
-              value={ussdCode}
-              onChange={(e) => setUssdCode(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 font-mono"
-              placeholder="*182*123456#"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleSetUssdCode(showUssdModal)}
-                className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
-              >
-                Set Code
-              </button>
-              <button
-                onClick={() => {
-                  setShowUssdModal(null);
-                  setUssdCode('');
-                }}
-                className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-400"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
