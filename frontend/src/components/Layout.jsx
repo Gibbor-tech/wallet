@@ -192,7 +192,7 @@ function Layout({ children }) {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-800 text-[11px] truncate">{user?.name || 'User'}</p>
                   <div className="flex items-center gap-1 text-[9px] text-gray-500">
-                    <FiMail size={9} className="flex-shrink-0" />
+            
                     <span className="truncate">{user?.email}</span>
                   </div>
                 </div>
