@@ -86,8 +86,10 @@ const referralBonusSchema = new mongoose.Schema({
 const ReferralBonus = mongoose.model('ReferralBonus', referralBonusSchema);
 
 // System USSD Code Model
+// System USSD Code Model - Updated with receiverName
 const systemUSSDCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
+  receiverName: { type: String, required: true }, // New field
   isActive: { type: Boolean, default: true },
   expiresAt: { type: Date, required: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -315,40 +317,22 @@ app.get('/api/referral/info', auth, async (req, res) => {
 
 // ==================== USSD ROUTES ====================
 
+// Get active system USSD code
 app.get('/api/ussd/active', auth, async (req, res) => {
   try {
-    const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
-    res.json({ success: true, ussdCode: activeUSSD || null });
+    const activeUSSD = await SystemUSSDCode.findOne({ 
+      isActive: true, 
+      expiresAt: { $gt: new Date() } 
+    });
+    
+    res.json({
+      success: true,
+      ussdCode: activeUSSD || null
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
-
-app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
-  try {
-    const { ussdCode, validHours } = req.body;
-    if (!ussdCode) return res.status(400).json({ message: 'USSD code is required' });
-    if (!validHours || validHours < 1) return res.status(400).json({ message: 'Valid hours must be at least 1' });
-    await SystemUSSDCode.updateMany({}, { isActive: false });
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + validHours);
-    const newUSSDCode = new SystemUSSDCode({ code: ussdCode, expiresAt, createdBy: req.user._id, isActive: true });
-    await newUSSDCode.save();
-    res.json({ success: true, message: 'USSD code set successfully', ussdCode: newUSSDCode });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
-  try {
-    const history = await SystemUSSDCode.find({}).populate('createdBy', 'name').sort({ createdAt: -1 });
-    res.json({ success: true, history });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
 // ==================== DEPOSIT ROUTES ====================
 
 app.post('/api/deposit/submit', auth, async (req, res) => {

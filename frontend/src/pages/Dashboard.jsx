@@ -4,48 +4,36 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Layout from '../components/Layout';
 import { 
-  FiArrowDown, 
-  FiArrowUp, 
-  FiRefreshCw, 
-  FiHome,
-  FiTrendingUp,
-  FiTrendingDown,
-  FiZap
+  FiArrowDown, FiArrowUp, FiRefreshCw, FiTrendingUp, FiTrendingDown, FiZap
 } from 'react-icons/fi';
 
 function Dashboard() {
   const { user } = useAuth();
   const [balance, setBalance] = useState(0);
   const [recentTransactions, setRecentTransactions] = useState([]);
-  const [pendingDeposit, setPendingDeposit] = useState(null);
   const [stats, setStats] = useState({
     totalDeposits: 0,
     totalWithdrawals: 0,
     totalTransfers: 0
   });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchBalance();
-    fetchTransactions();
-    checkPendingDeposit();
+    fetchData();
   }, []);
 
-  const fetchBalance = async () => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5000/api/balance');
-      if (response.data.success) {
-        setBalance(response.data.balance);
-      }
-    } catch (error) {
-      console.error('Error fetching balance:', error);
-    }
-  };
-
-  const fetchTransactions = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/transactions');
-      if (response.data.success) {
-        const allTransactions = response.data.transactions;
+      const [balanceRes, transactionsRes] = await Promise.all([
+        axios.get('http://localhost:5000/api/balance'),
+        axios.get('http://localhost:5000/api/transactions')
+      ]);
+      
+      if (balanceRes.data.success) setBalance(balanceRes.data.balance);
+      
+      if (transactionsRes.data.success) {
+        const allTransactions = transactionsRes.data.transactions;
         setRecentTransactions(allTransactions.slice(0, 5));
         
         const deposits = allTransactions.filter(t => t.type === 'deposit' && t.status === 'approved');
@@ -59,38 +47,19 @@ function Dashboard() {
         });
       }
     } catch (error) {
-      console.error('Error fetching transactions:', error);
-    }
-  };
-
-  const checkPendingDeposit = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/deposit/pending');
-      if (response.data.success && response.data.deposit) {
-        setPendingDeposit(response.data.deposit);
-      }
-    } catch (error) {
-      console.error('Error checking pending deposit:', error);
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
   const getStatusColor = (status) => {
     switch(status) {
-      case 'approved': return 'bg-blue-100 text-blue-700';
-      case 'completed': return 'bg-green-100 text-green-700';
-      case 'pending': return 'bg-yellow-100 text-yellow-700';
-      case 'rejected': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
-
-  const getTypeIcon = (type) => {
-    switch(type) {
-      case 'deposit': return <FiTrendingDown className="text-blue-600" />;
-      case 'transfer': return <FiRefreshCw className="text-purple-600" />;
-      case 'transfer_received': return <FiTrendingUp className="text-green-600" />;
-      case 'withdrawal': return <FiTrendingUp className="text-red-600" />;
-      default: return <FiHome className="text-gray-600" />;
+      case 'approved': return 'text-emerald-600 bg-emerald-50';
+      case 'completed': return 'text-blue-600 bg-blue-50';
+      case 'pending': return 'text-amber-600 bg-amber-50';
+      case 'rejected': return 'text-red-600 bg-red-50';
+      default: return 'text-gray-600 bg-gray-50';
     }
   };
 
@@ -100,146 +69,130 @@ function Dashboard() {
       <div className="mb-6">
         <div className="flex items-center gap-2">
           <FiZap className="text-blue-600" size={24} />
-          <h1 className="text-2xl font-bold text-gray-800">Welcome back, {user?.name?.split(' ')[0]}!</h1>
+          <h1 className="text-4xl font-bold text-gray-900">
+            Welcome back, {user?.name?.split(' ')[0] || 'User'}!
+          </h1>
         </div>
-        <p className="text-gray-500 text-sm mt-1">Here's your SwiftPay wallet overview</p>
+        <p className="text-sm text-gray-500 mt-1">Here's your SwiftPay wallet overview</p>
       </div>
 
-      {/* Pending Deposit Alert */}
-      {pendingDeposit && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0">
-              <span className="text-yellow-400 text-lg">⏳</span>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm text-yellow-800 font-medium">
-                Pending Deposit: <strong>RWF {pendingDeposit.amount?.toLocaleString()}</strong>
-              </p>
-              <p className="text-xs text-yellow-700 mt-1">
-                USSD Code: <code className="bg-yellow-100 px-2 py-0.5 rounded font-mono">{pendingDeposit.ussdCode}</code>
-              </p>
-              <Link to="/deposit" className="text-xs text-yellow-800 hover:underline mt-2 inline-block">
-                View Details →
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Balance Card - SwiftPay Blue Theme */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl shadow-lg p-6 mb-6 text-white">
-        <p className="text-sm opacity-90">Total Balance</p>
-        <p className="text-4xl font-bold mt-2">RWF {balance.toLocaleString()}</p>
-        <p className="text-xs mt-2 opacity-75">Available for withdrawal and transfers</p>
+      {/* Balance Card */}
+      <div className="bg-gradient-to-r from-[#08142f] to-[#0d1b45] rounded-2xl p-6 mb-6 text-white shadow-md">
+        <p className="text-sm text-gray-300">Total Balance</p>
+        {loading ? (
+          <div className="h-12 w-48 mt-1 bg-white/20 rounded animate-pulse" />
+        ) : (
+          <h2 className="text-5xl font-bold mt-1">RWF {balance.toLocaleString()}</h2>
+        )}
+        <p className="text-xs text-gray-400 mt-2">Available for withdrawal & transfers</p>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl shadow-sm p-4 text-center border border-gray-100">
-          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-            <FiArrowDown className="text-blue-600" size={16} />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center mb-3">
+            <FiTrendingDown className="text-blue-500" size={20} />
           </div>
           <p className="text-xs text-gray-500">Total Deposits</p>
-          <p className="text-lg font-bold text-gray-800">RWF {stats.totalDeposits.toLocaleString()}</p>
+          {loading ? (
+            <div className="h-6 w-24 bg-gray-200 rounded animate-pulse mt-1" />
+          ) : (
+            <h3 className="font-bold text-lg text-gray-900">RWF {stats.totalDeposits.toLocaleString()}</h3>
+          )}
         </div>
         
-        <div className="bg-white rounded-xl shadow-sm p-4 text-center border border-gray-100">
-          <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-            <FiArrowUp className="text-red-600" size={16} />
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+          <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center mb-3">
+            <FiTrendingUp className="text-red-500" size={20} />
           </div>
           <p className="text-xs text-gray-500">Total Withdrawals</p>
-          <p className="text-lg font-bold text-gray-800">RWF {stats.totalWithdrawals.toLocaleString()}</p>
+          {loading ? (
+            <div className="h-6 w-24 bg-gray-200 rounded animate-pulse mt-1" />
+          ) : (
+            <h3 className="font-bold text-lg text-gray-900">RWF {stats.totalWithdrawals.toLocaleString()}</h3>
+          )}
         </div>
         
-        <div className="bg-white rounded-xl shadow-sm p-4 text-center border border-gray-100">
-          <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-            <FiRefreshCw className="text-purple-600" size={16} />
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+          <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center mb-3">
+            <FiRefreshCw className="text-purple-500" size={20} />
           </div>
-          <p className="text-xs text-gray-500">Total Transfers</p>
-          <p className="text-lg font-bold text-gray-800">{stats.totalTransfers}</p>
+          <p className="text-xs text-gray-500">Transfers</p>
+          {loading ? (
+            <div className="h-6 w-24 bg-gray-200 rounded animate-pulse mt-1" />
+          ) : (
+            <h3 className="font-bold text-lg text-gray-900">{stats.totalTransfers}</h3>
+          )}
         </div>
       </div>
 
       {/* Action Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        <Link
-          to="/deposit"
-          className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 hover:shadow-md transition group"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center group-hover:bg-blue-200 transition">
-              <FiArrowDown className="text-blue-600 text-xl" />
+        <Link to="/deposit" className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all group">
+          <div className="flex justify-between items-center">
+            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+              <FiArrowDown className="text-blue-500" size={20} />
             </div>
-            <span className="text-xs text-gray-400">Deposit</span>
+            <span className="text-gray-400 text-lg group-hover:translate-x-1 transition">↗</span>
           </div>
-          <h3 className="font-semibold text-gray-800">Deposit Money</h3>
-          <p className="text-sm text-gray-500 mt-1">Add funds to your wallet via USSD</p>
-          <div className="mt-3 text-blue-600 text-sm font-medium group-hover:translate-x-1 transition inline-block">
-            Deposit Now →
-          </div>
+          <h3 className="mt-4 font-semibold text-gray-900 text-lg">Deposit Money</h3>
+          <p className="text-sm text-gray-500">Add funds via USSD</p>
+          <p className="mt-4 text-sm text-blue-500">Deposit Now →</p>
         </Link>
 
-        <Link
-          to="/transfer"
-          className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 hover:shadow-md transition group"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center group-hover:bg-purple-200 transition">
-              <FiRefreshCw className="text-purple-600 text-xl" />
+        <Link to="/transfer" className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all group">
+          <div className="flex justify-between items-center">
+            <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
+              <FiRefreshCw className="text-purple-500" size={20} />
             </div>
-            <span className="text-xs text-gray-400">Transfer</span>
+            <span className="text-gray-400 text-lg group-hover:translate-x-1 transition">↗</span>
           </div>
-          <h3 className="font-semibold text-gray-800">Transfer Money</h3>
-          <p className="text-sm text-gray-500 mt-1">Send to other SwiftPay users</p>
-          <div className="mt-3 text-purple-600 text-sm font-medium group-hover:translate-x-1 transition inline-block">
-            Transfer Now →
-          </div>
+          <h3 className="mt-4 font-semibold text-gray-900 text-lg">Transfer Money</h3>
+          <p className="text-sm text-gray-500">Send to other users</p>
+          <p className="mt-4 text-sm text-purple-500">Transfer Now →</p>
         </Link>
 
-        <Link
-          to="/withdrawal"
-          className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 hover:shadow-md transition group"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center group-hover:bg-red-200 transition">
-              <FiArrowUp className="text-red-600 text-xl" />
+        <Link to="/withdrawal" className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all group">
+          <div className="flex justify-between items-center">
+            <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
+              <FiArrowUp className="text-red-500" size={20} />
             </div>
-            <span className="text-xs text-gray-400">Withdraw</span>
+            <span className="text-gray-400 text-lg group-hover:translate-x-1 transition">↗</span>
           </div>
-          <h3 className="font-semibold text-gray-800">Withdraw Money</h3>
-          <p className="text-sm text-gray-500 mt-1">Send money to your mobile number</p>
-          <div className="mt-3 text-red-600 text-sm font-medium group-hover:translate-x-1 transition inline-block">
-            Withdraw Now →
-          </div>
+          <h3 className="mt-4 font-semibold text-gray-900 text-lg">Withdraw Money</h3>
+          <p className="text-sm text-gray-500">Send to mobile number</p>
+          <p className="mt-4 text-sm text-red-500">Withdraw Now →</p>
         </Link>
       </div>
 
       {/* Recent Transactions */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Recent Transactions</h2>
-          <Link to="/transactions" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-            View All →
-          </Link>
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h2 className="uppercase tracking-wider text-xs text-gray-500 font-semibold">Recent Transactions</h2>
         </div>
         
-        {recentTransactions.length === 0 ? (
+        {loading ? (
+          <div className="p-4 space-y-3">
+            {[1, 2, 3].map(i => <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />)}
+          </div>
+        ) : recentTransactions.length === 0 ? (
           <div className="py-12 text-center text-gray-500">
-            <p>No transactions yet</p>
+            <p className="text-sm">No transactions yet</p>
             <p className="text-xs mt-1">Make a deposit or transfer to get started</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
             {recentTransactions.map((transaction) => (
-              <div key={transaction._id} className="px-5 py-3 flex justify-between items-center hover:bg-gray-50 transition">
+              <div key={transaction._id} className="px-6 py-4 flex justify-between items-center hover:bg-gray-50 transition">
                 <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                    transaction.type === 'deposit' ? 'bg-blue-100' :
-                    transaction.type === 'transfer' ? 'bg-purple-100' :
-                    transaction.type === 'transfer_received' ? 'bg-green-100' : 'bg-red-100'
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    transaction.type === 'deposit' ? 'bg-blue-50' :
+                    transaction.type === 'transfer' ? 'bg-purple-50' :
+                    transaction.type === 'transfer_received' ? 'bg-emerald-50' : 'bg-red-50'
                   }`}>
-                    {getTypeIcon(transaction.type)}
+                    {transaction.type === 'deposit' && <FiArrowDown className="text-blue-500" size={16} />}
+                    {transaction.type === 'transfer' && <FiRefreshCw className="text-purple-500" size={16} />}
+                    {transaction.type === 'withdrawal' && <FiArrowUp className="text-red-500" size={16} />}
                   </div>
                   <div>
                     <p className="font-medium text-gray-800 text-sm capitalize">
@@ -250,26 +203,18 @@ function Dashboard() {
                     <p className="text-xs text-gray-400">
                       {new Date(transaction.createdAt).toLocaleDateString()}
                     </p>
-                    {transaction.receiverName && (
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {transaction.type === 'transfer' ? 'To: ' : 
-                         transaction.type === 'transfer_received' ? 'From: ' : ''}
-                        {transaction.receiverName}
-                      </p>
-                    )}
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className={`font-semibold text-sm ${
+                  <p className={`text-sm font-semibold ${
                     transaction.type === 'deposit' || transaction.type === 'transfer_received' 
-                      ? 'text-green-600' 
-                      : 'text-red-600'
+                      ? 'text-emerald-600' : 'text-red-600'
                   }`}>
                     {transaction.type === 'deposit' || transaction.type === 'transfer_received' ? '+' : '-'} 
                     RWF {transaction.amount?.toLocaleString()}
                   </p>
                   <span className={`inline-block px-2 py-0.5 rounded-full text-xs ${getStatusColor(transaction.status)}`}>
-                    {transaction.status === 'instant' ? 'Completed' : transaction.status}
+                    {transaction.status}
                   </span>
                 </div>
               </div>
