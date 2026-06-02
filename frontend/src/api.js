@@ -1,17 +1,37 @@
 // src/api.js
 import axios from 'axios';
 
-// Create axios instance with default config
-const api = axios.create({
-  baseURL: 'http://localhost:3000',
-  timeout: 30000, // 30 seconds
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-// Request interceptor: attach JWT token
-api.interceptors.request.use(
+// Set default baseURL for relative requests
+axios.defaults.baseURL = API_BASE_URL;
+axios.defaults.timeout = 30000;
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+
+// Rewrite local backend URLs in outgoing requests so deployed frontend does not call localhost.
+axios.interceptors.request.use(
+  (config) => {
+    const originalUrl = config.url || '';
+    if (originalUrl.startsWith('http://localhost:5000')) {
+      config.url = originalUrl.replace('http://localhost:5000', API_BASE_URL);
+    }
+    if (originalUrl.startsWith('http://localhost:3000')) {
+      config.url = originalUrl.replace('http://localhost:3000', API_BASE_URL);
+    }
+
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+const api = axios;
+
+// Response interceptor: handle common errors
+api.interceptors.response.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
