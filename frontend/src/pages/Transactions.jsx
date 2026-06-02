@@ -3,19 +3,23 @@ import axios from 'axios';
 import Layout from '../components/Layout';
 import { 
   FiArrowDown, FiArrowUp, FiRefreshCw, FiTrendingUp, 
-  FiTrendingDown, FiZap, FiClock, FiUser, FiPhone
+  FiTrendingDown, FiZap, FiClock, FiUser, FiPhone,
+  FiFilter, FiX, FiChevronLeft, FiChevronRight
 } from 'react-icons/fi';
 
 function Transactions() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     fetchTransactions();
   }, []);
 
   const fetchTransactions = async () => {
+    setLoading(true);
     try {
       const response = await axios.get('http://localhost:5000/api/transactions');
       if (response.data.success) {
@@ -35,6 +39,13 @@ function Transactions() {
     return t.type === filter;
   });
 
+  // Pagination
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const paginatedTransactions = filteredTransactions.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   const getStatusBadge = (status) => {
     const styles = {
       pending: 'bg-amber-100 text-amber-700',
@@ -48,11 +59,11 @@ function Transactions() {
 
   const getTransactionIcon = (type) => {
     switch(type) {
-      case 'deposit': return <FiArrowDown className="text-emerald-600" size={18} />;
-      case 'transfer': return <FiRefreshCw className="text-red-600" size={18} />;
-      case 'transfer_received': return <FiTrendingUp className="text-emerald-600" size={18} />;
-      case 'withdrawal': return <FiArrowUp className="text-red-600" size={18} />;
-      default: return <FiZap className="text-blue-600" size={18} />;
+      case 'deposit': return <FiArrowDown className="text-emerald-600" size={14} />;
+      case 'transfer': return <FiRefreshCw className="text-red-600" size={14} />;
+      case 'transfer_received': return <FiTrendingUp className="text-emerald-600" size={14} />;
+      case 'withdrawal': return <FiArrowUp className="text-red-600" size={14} />;
+      default: return <FiZap className="text-blue-600" size={14} />;
     }
   };
 
@@ -89,144 +100,231 @@ function Transactions() {
   const getTransactionLabel = (type) => {
     switch(type) {
       case 'deposit': return 'Deposit';
-      case 'transfer': return 'Transfer Sent';
-      case 'transfer_received': return 'Transfer Received';
+      case 'transfer': return 'Sent';
+      case 'transfer_received': return 'Received';
       case 'withdrawal': return 'Withdrawal';
       default: return type;
     }
   };
 
+  const FilterButton = ({ value, label, icon: Icon }) => (
+    <button
+      onClick={() => {
+        setFilter(value);
+        setCurrentPage(1);
+      }}
+      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap flex items-center gap-1.5 active:scale-95 ${
+        filter === value 
+          ? 'bg-blue-600 text-white shadow-sm' 
+          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+      }`}
+    >
+      {Icon && <Icon size={11} />}
+      {label}
+    </button>
+  );
+
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto px-2 sm:px-4">
+        
         {/* Header */}
-        <div className="mb-6 sm:mb-8">
+        <div className="mb-4 sm:mb-6">
           <div className="flex items-center gap-2">
-            <FiZap className="text-blue-600" size={24} />
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">Transaction History</h1>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+              <FiZap className="text-blue-600" size={16} />
+            </div>
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800">Transaction History</h1>
           </div>
-          <p className="text-gray-500 text-xs sm:text-sm mt-1">View all your deposit, transfer and withdrawal transactions</p>
+          <p className="text-[10px] sm:text-xs text-gray-500 mt-1 ml-1">View all your deposit, transfer and withdrawal transactions</p>
         </div>
 
         {/* Main Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          {/* Filter Tabs */}
-          <div className="flex border-b border-gray-100 overflow-x-auto">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-4 sm:px-6 py-3 text-center font-medium transition whitespace-nowrap text-sm ${
-                filter === 'all' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilter('deposit')}
-              className={`px-4 sm:px-6 py-3 text-center font-medium transition whitespace-nowrap text-sm ${
-                filter === 'deposit' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Deposits
-            </button>
-            <button
-              onClick={() => setFilter('sent')}
-              className={`px-4 sm:px-6 py-3 text-center font-medium transition whitespace-nowrap text-sm ${
-                filter === 'sent' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Sent
-            </button>
-            <button
-              onClick={() => setFilter('received')}
-              className={`px-4 sm:px-6 py-3 text-center font-medium transition whitespace-nowrap text-sm ${
-                filter === 'received' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Received
-            </button>
-            <button
-              onClick={() => setFilter('withdrawal')}
-              className={`px-4 sm:px-6 py-3 text-center font-medium transition whitespace-nowrap text-sm ${
-                filter === 'withdrawal' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Withdrawals
-            </button>
+        <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          
+          {/* Filter Tabs - Scrollable on mobile */}
+          <div className="border-b border-gray-100 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-2 p-3 sm:p-4 min-w-max">
+              <FilterButton value="all" label="All" icon={FiZap} />
+              <FilterButton value="deposit" label="Deposits" icon={FiArrowDown} />
+              <FilterButton value="sent" label="Sent" icon={FiRefreshCw} />
+              <FilterButton value="received" label="Received" icon={FiTrendingUp} />
+              <FilterButton value="withdrawal" label="Withdrawals" icon={FiArrowUp} />
+            </div>
           </div>
 
-          <div className="p-4 sm:p-6">
+          <div className="p-3 sm:p-5">
+            
             {loading ? (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <p className="mt-2 text-gray-500 text-sm">Loading transactions...</p>
-              </div>
-            ) : filteredTransactions.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500">No transactions found</p>
-                <p className="text-xs text-gray-400 mt-1">Make a deposit or transfer to get started</p>
-              </div>
-            ) : (
+              // Loading Skeletons
               <div className="space-y-3">
-                {filteredTransactions.map((transaction) => (
-                  <div key={transaction._id} className="flex items-center p-4 border border-gray-100 rounded-xl hover:shadow-md transition bg-white">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${getTransactionBg(transaction.type)}`}>
-                      {getTransactionIcon(transaction.type)}
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex items-center p-3 border border-gray-100 rounded-xl">
+                    <div className="w-9 h-9 bg-gray-100 rounded-lg animate-pulse" />
+                    <div className="flex-1 ml-3">
+                      <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+                      <div className="h-2 w-32 bg-gray-100 rounded animate-pulse mt-1.5" />
                     </div>
-                    <div className="flex-1 ml-3 min-w-0">
-                      <div className="flex flex-wrap justify-between items-start gap-2">
-                        <div>
-                          <p className="font-semibold text-gray-800 text-sm sm:text-base">
-                            {getTransactionLabel(transaction.type)}
-                          </p>
-                          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                            <FiClock size={10} />
-                            {new Date(transaction.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-base sm:text-lg font-bold ${getTransactionColor(transaction.type)}`}>
-                            {getTransactionSymbol(transaction.type)} RWF {transaction.amount?.toLocaleString()}
-                          </p>
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${getStatusBadge(transaction.status)}`}>
-                            {transaction.status === 'instant' ? 'Completed' : transaction.status}
-                          </span>
-                        </div>
-                      </div>
-                      {transaction.receiverName && (
-                        <div className="mt-2 pt-2 border-t border-gray-50">
-                          <p className="text-xs text-gray-500 flex items-center gap-1">
-                            <FiUser size={10} />
-                            {transaction.type === 'transfer' ? 'To: ' : 
-                             transaction.type === 'transfer_received' ? 'From: ' : 
-                             transaction.type === 'withdrawal' ? 'To: ' : ''}
-                            {transaction.receiverName}
-                          </p>
-                          {transaction.receiverPhone && (
-                            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                              <FiPhone size={10} />
-                              {transaction.receiverPhone}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      {transaction.ussdCode && (
-                        <p className="text-xs text-gray-400 mt-2 font-mono">
-                          USSD: {transaction.ussdCode}
-                        </p>
-                      )}
-                      {transaction.description && transaction.type !== 'deposit' && (
-                        <p className="text-xs text-gray-400 mt-1 italic">
-                          "{transaction.description}"
-                        </p>
-                      )}
+                    <div className="text-right">
+                      <div className="h-3 w-20 bg-gray-100 rounded animate-pulse" />
+                      <div className="h-2 w-12 bg-gray-100 rounded animate-pulse mt-1" />
                     </div>
                   </div>
                 ))}
               </div>
+            ) : paginatedTransactions.length === 0 ? (
+              // Empty State
+              <div className="text-center py-8 sm:py-10">
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <FiRefreshCw size={20} className="text-gray-400" />
+                </div>
+                <p className="text-xs sm:text-sm text-gray-500">No transactions found</p>
+                <p className="text-[9px] sm:text-[10px] text-gray-400 mt-1">Make a deposit or transfer to get started</p>
+              </div>
+            ) : (
+              <>
+                {/* Transactions List */}
+                <div className="space-y-2.5">
+                  {paginatedTransactions.map((transaction) => (
+                    <div 
+                      key={transaction._id} 
+                      className="flex items-start sm:items-center p-3 border border-gray-100 rounded-xl hover:shadow-md transition-all hover:border-gray-200 active:bg-gray-50"
+                    >
+                      {/* Icon */}
+                      <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${getTransactionBg(transaction.type)}`}>
+                        {getTransactionIcon(transaction.type)}
+                      </div>
+                      
+                      {/* Details */}
+                      <div className="flex-1 ml-2.5 min-w-0">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1">
+                          <div>
+                            <p className="font-semibold text-gray-800 text-[11px] sm:text-xs">
+                              {getTransactionLabel(transaction.type)}
+                            </p>
+                            <p className="text-[9px] text-gray-400 flex items-center gap-1 mt-0.5">
+                              <FiClock size={8} />
+                              {new Date(transaction.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <p className={`text-sm sm:text-base font-bold ${getTransactionColor(transaction.type)}`}>
+                              {getTransactionSymbol(transaction.type)} RWF {transaction.amount?.toLocaleString()}
+                            </p>
+                            <span className={`inline-block px-1.5 py-0.5 rounded-full text-[8px] font-medium mt-0.5 ${getStatusBadge(transaction.status)}`}>
+                              {transaction.status === 'instant' ? 'Completed' : transaction.status}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Additional Info */}
+                        {(transaction.receiverName || transaction.description) && (
+                          <div className="mt-1.5 pt-1.5 border-t border-gray-50">
+                            {transaction.receiverName && (
+                              <p className="text-[9px] text-gray-500 flex items-center gap-1">
+                                <FiUser size={8} />
+                                {transaction.type === 'transfer' ? 'To: ' : 
+                                 transaction.type === 'transfer_received' ? 'From: ' : 
+                                 transaction.type === 'withdrawal' ? 'To: ' : ''}
+                                {transaction.receiverName}
+                              </p>
+                            )}
+                            {transaction.description && transaction.type !== 'deposit' && (
+                              <p className="text-[9px] text-gray-400 italic mt-0.5 line-clamp-1">
+                                "{transaction.description}"
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex justify-center items-center gap-2 mt-5 pt-3 border-t border-gray-100">
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="p-1.5 rounded-lg bg-gray-100 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-200 transition active:scale-95"
+                    >
+                      <FiChevronLeft size={14} />
+                    </button>
+                    <div className="flex gap-1">
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`w-7 h-7 rounded-lg text-[11px] font-medium transition active:scale-95 ${
+                              currentPage === pageNum
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="p-1.5 rounded-lg bg-gray-100 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-200 transition active:scale-95"
+                    >
+                      <FiChevronRight size={14} />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
+
+        {/* Quick Stats Footer */}
+        {!loading && transactions.length > 0 && (
+          <div className="mt-4 bg-white rounded-lg p-3 border border-gray-200">
+            <div className="flex justify-between items-center text-[10px] text-gray-500">
+              <span>Total Transactions: {transactions.length}</span>
+              <span>Showing {paginatedTransactions.length} of {filteredTransactions.length}</span>
+              <button 
+                onClick={fetchTransactions}
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-700 active:scale-95"
+              >
+                <FiRefreshCw size={10} /> Refresh
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      <style jsx>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .line-clamp-1 {
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
     </Layout>
   );
 }

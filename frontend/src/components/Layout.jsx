@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   FiHome, FiDownload, FiRefreshCw, FiSend, FiList, FiGift, FiLogOut, 
-  FiUser, FiMail, FiZap
+  FiUser, FiMail, FiZap, FiMenu, FiX
 } from 'react-icons/fi';
 
 function Layout({ children }) {
@@ -11,9 +11,14 @@ function Layout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setIsSidebarOpen(false);
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -35,33 +40,122 @@ function Layout({ children }) {
   // Mobile Bottom Navigation
   if (isMobile) {
     return (
-      <div className="min-h-screen bg-[#f5f6f8] pb-20">
-        <header className="bg-gradient-to-r from-[#08142f] to-[#0d1b45] text-white px-4 py-3 shadow-lg sticky top-0 z-10">
+      <div className="min-h-screen bg-[#f5f6f8] pb-14">
+        <header className="bg-gradient-to-r from-[#08142f] to-[#0d1b45] text-white px-3 py-2 shadow-lg sticky top-0 z-10">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-                <FiZap className="text-white" size={18} />
+              <button 
+                onClick={() => setIsSidebarOpen(true)} 
+                className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <FiMenu size={18} />
+              </button>
+              <div className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center">
+                <FiZap className="text-white" size={14} />
               </div>
               <div>
-                <h1 className="font-bold text-lg">SwiftPay</h1>
-                <p className="text-xs opacity-90">Welcome, {user?.name?.split(' ')[0]}</p>
+                <h1 className="font-bold text-sm">SwiftPay</h1>
+                <p className="text-[10px] opacity-90">Hi, {user?.name?.split(' ')[0]}</p>
               </div>
             </div>
-            <button onClick={handleLogout} className="p-2 bg-white/20 rounded-lg hover:bg-white/30 transition">
-              <FiLogOut size={18} />
+            <button 
+              onClick={handleLogout} 
+              className="p-1.5 bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+            >
+              <FiLogOut size={14} />
             </button>
           </div>
         </header>
-        <main className="p-4">{children}</main>
+
+        {/* Mobile Sidebar Drawer */}
+        {isSidebarOpen && (
+          <>
+            <div 
+              className="fixed inset-0 bg-black/50 z-20"
+              onClick={() => setIsSidebarOpen(false)}
+            />
+            <aside className="fixed left-0 top-0 h-full w-64 bg-white z-20 shadow-xl animate-slideIn">
+              <div className="flex flex-col h-full">
+                <div className="p-3">
+                  <div className="flex justify-end mb-3">
+                    <button 
+                      onClick={() => setIsSidebarOpen(false)}
+                      className="p-1.5 hover:bg-gray-100 rounded-lg"
+                    >
+                      <FiX size={18} />
+                    </button>
+                  </div>
+                  
+                  <div className="mb-4 p-2 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-gradient-to-r from-[#08142f] to-[#0d1b45] rounded-full flex items-center justify-center">
+                        <FiUser className="text-white" size={20} />
+                      </div>
+                      <div className="flex-1 p-1 min-w-2">
+                        <p className="font-semibold text-gray-800 text-xs ">{user?.name || 'User'}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{user?.email}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <nav className="flex-1 px-3 space-y-0.5">
+                  {navItems.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setIsSidebarOpen(false)}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md transition-all text-xs ${
+                          isActive
+                            ? 'bg-gray-100 text-gray-900 font-medium'
+                            : 'text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Icon size={14} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </nav>
+
+                <div className="p-3 border-t border-gray-100">
+                  <button
+                    onClick={() => {
+                      handleLogout();
+                      setIsSidebarOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 text-red-600 hover:bg-red-50 rounded-md transition-all text-xs"
+                  >
+                    <FiLogOut size={14} />
+                    <span>Logout</span>
+                  </button>
+                </div>
+              </div>
+            </aside>
+          </>
+        )}
+
+        <main className="p-2">{children}</main>
+        <footer className="px-2 pb-1 text-center text-[9px] text-gray-400">made by swiftpay</footer>
+        
         <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-10">
-          <div className="flex justify-around items-center px-2 py-2">
+          <div className="flex justify-around items-center px-1 py-1">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               const Icon = item.icon;
               return (
-                <Link key={item.path} to={item.path} className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all ${isActive ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-blue-500'}`}>
-                  <Icon size={20} />
-                  <span className={`text-xs ${isActive ? 'font-semibold' : ''}`}>{item.label}</span>
+                <Link 
+                  key={item.path} 
+                  to={item.path} 
+                  className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-lg transition-all active:scale-95 ${
+                    isActive ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-blue-500'
+                  }`}
+                >
+                  <Icon size={16} />
+                  <span className={`text-[9px] ${isActive ? 'font-semibold' : ''}`}>{item.label}</span>
                 </Link>
               );
             })}
@@ -75,38 +169,39 @@ function Layout({ children }) {
   return (
     <div className="min-h-screen bg-[#f5f6f8] flex">
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 z-10">
-        <div className="p-6">
-          {/* Logo */}
-          <div className="flex items-center gap-2 mb-8">
-            <div className="w-9 h-9 bg-gradient-to-r from-[#08142f] to-[#0d1b45] rounded-xl flex items-center justify-center shadow-md">
-              <FiZap className="text-white text-lg" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">Swift<span className="text-blue-600">Pay</span></h1>
-              <p className="text-xs text-gray-400">Fast & Secure</p>
-            </div>
-          </div>
-          
-          {/* User Info */}
-          <div className="mb-6 p-4 bg-gray-50 rounded-xl">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-[#08142f] to-[#0d1b45] rounded-full flex items-center justify-center shadow-sm">
-                <FiUser className="text-white" size={16} />
+      <aside className="fixed left-0 top-0 h-full w-56 bg-white border-r border-gray-200 z-10 flex flex-col">
+        <div className="flex-1 flex flex-col overflow-y-auto">
+          <div className="p-3">
+            {/* Logo */}
+            <div className="flex items-center gap-2 mb-6">
+              <div className="w-8 h-8 bg-gradient-to-r from-[#08142f] to-[#0d1b45] rounded-lg flex items-center justify-center shadow-md">
+                <FiZap className="text-white text-sm" />
               </div>
               <div>
-                <p className="font-semibold text-gray-800 text-sm">{user?.name || 'User'}</p>
-                <p className="text-xs text-gray-500">{user?.email || 'user@example.com'}</p>
+                <h1 className="text-base font-bold text-gray-800">Swift<span className="text-blue-600">Pay</span></h1>
+                <p className="text-[9px] text-gray-400">Fast & Secure</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500 pt-2 border-t border-gray-100">
-              <FiMail size={12} />
-              <span className="truncate">{user?.email}</span>
+            
+            {/* User Info - Email shown only once */}
+            <div className="mb-4 p-2 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 bg-gradient-to-r from-[#08142f] to-[#0d1b45] rounded-full flex items-center justify-center flex-shrink-0">
+                  <FiUser className="text-white" size={12} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 text-[11px] truncate">{user?.name || 'User'}</p>
+                  <div className="flex items-center gap-1 text-[9px] text-gray-500">
+                    <FiMail size={9} className="flex-shrink-0" />
+                    <span className="truncate">{user?.email}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Navigation */}
-          <nav className="space-y-1">
+          <nav className="px-3 space-y-0.5 flex-1">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
               const Icon = item.icon;
@@ -114,38 +209,38 @@ function Layout({ children }) {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 text-sm ${
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md transition-all duration-200 text-[11px] group ${
                     isActive
                       ? 'bg-gray-100 text-gray-900 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      : 'text-gray-600 hover:bg-gray-50 hover:translate-x-0.5'
                   }`}
                 >
-                  <Icon size={18} />
+                  <Icon size={14} className="transition-transform group-hover:scale-105" />
                   <span>{item.label}</span>
                 </Link>
               );
             })}
           </nav>
+        </div>
 
-          {/* Logout Button */}
+        {/* Logout Button - Fixed at bottom */}
+        <div className="p-3 border-t border-gray-100">
           <button
             onClick={handleLogout}
-            className="mt-6 w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 text-sm"
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-red-600 hover:bg-red-50 rounded-md transition-all duration-200 text-[11px] group"
           >
-            <FiLogOut size={18} />
+            <FiLogOut size={14} className="transition-transform group-hover:translate-x-0.5" />
             <span>Logout</span>
           </button>
-
-          {/* Footer */}
-          <p className="text-center text-xs text-gray-400 mt-8 pt-4 border-t border-gray-100">
-            Made by MeDo
+          <p className="text-center text-[9px] text-gray-400 mt-3">
+            made by swiftpay
           </p>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="ml-64 flex-1 p-6">
-        <div className="max-w-5xl mx-auto">
+      <main className="ml-56 flex-1 p-3">
+        <div className="max-w-6xl mx-auto">
           {children}
         </div>
       </main>

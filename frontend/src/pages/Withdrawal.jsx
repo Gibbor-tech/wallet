@@ -5,7 +5,8 @@ import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
 import { 
   FiArrowUp, FiAlertCircle, FiCheckCircle, FiClock, 
-  FiUser, FiPhone, FiDollarSign, FiSend, FiZap, FiShield
+  FiUser, FiPhone, FiDollarSign, FiSend, FiZap, FiShield,
+  FiChevronRight
 } from 'react-icons/fi';
 
 function Withdrawal() {
@@ -78,66 +79,75 @@ function Withdrawal() {
 
   return (
     <Layout>
-      <div className="w-full max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-3xl mx-auto px-2 sm:px-4">
+        
         {/* Header */}
-        <div className="mb-6 sm:mb-8">
+        <div className="mb-4 sm:mb-6">
           <div className="flex items-center gap-2">
-            <FiArrowUp className="text-red-500" size={22} />
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">Withdraw Money</h1>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-red-50 rounded-lg flex items-center justify-center">
+              <FiArrowUp className="text-red-500" size={16} />
+            </div>
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800">Withdraw Money</h1>
           </div>
-          <p className="text-gray-500 text-xs sm:text-sm mt-1">Request withdrawal to your registered mobile number</p>
+          <p className="text-[10px] sm:text-xs text-gray-500 mt-1 ml-1">Request withdrawal to your registered mobile number</p>
         </div>
 
         {/* Main Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          {/* Balance Card - Dark Blue Theme */}
-          <div className="bg-gradient-to-r from-[#08142f] to-[#0d1b45] p-4 sm:p-6">
+        <div className="bg-white rounded-xl sm:rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          
+          {/* Balance Card */}
+          <div className="bg-gradient-to-r from-[#08142f] to-[#0d1b45] p-3 sm:p-5">
             <div className="flex justify-between items-center text-white">
               <div>
-                <p className="text-xs sm:text-sm opacity-90 flex items-center gap-1">
-                  <FiDollarSign size={14} /> Your Balance
+                <p className="text-[10px] sm:text-xs opacity-90 flex items-center gap-1">
+                  <FiDollarSign size={12} /> Your Balance
                 </p>
-                <p className="text-xl sm:text-2xl md:text-3xl font-bold mt-1">
+                <p className="text-lg sm:text-xl md:text-2xl font-bold mt-1">
                   RWF {user?.balance?.toLocaleString() || '0'}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-xs opacity-80">Available for withdrawal</p>
+                <div className="flex items-center gap-1">
+                  <FiShield size={10} className="opacity-80" />
+                  <p className="text-[8px] sm:text-[9px] opacity-80">Secure</p>
+                </div>
                 <div className="flex items-center gap-1 mt-1 justify-end">
-                  <FiShield size={12} className="opacity-80" />
-                  <p className="text-xs opacity-80">Secure</p>
+                  <FiZap size={10} className="opacity-80" />
+                  <p className="text-[8px] sm:text-[9px] opacity-80">Admin Approval</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="p-4 sm:p-6 md:p-8">
-            {/* User Info Card */}
-            <div className="bg-blue-50 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 border border-blue-100">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <FiUser size={16} className="text-blue-600" />
+          <div className="p-4 sm:p-6 md:p-7">
+            
+            {/* User Info Card - Simplified */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 mb-5 border border-blue-100">
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <FiUser size={14} className="text-blue-600" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{user?.name}</p>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <FiPhone size={12} className="text-gray-500 flex-shrink-0" />
-                    <p className="text-xs sm:text-sm text-gray-600 truncate">
-                      Send to: <strong className="text-blue-700">{registeredPhone || 'Not registered'}</strong>
+                  <p className="font-semibold text-gray-800 text-xs truncate">{user?.name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <FiPhone size={10} className="text-gray-500 flex-shrink-0" />
+                    <p className="text-[10px] text-gray-600 truncate">
+                      <span className="font-medium text-blue-700">{registeredPhone || 'Not registered'}</span>
                     </p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-                    <FiCheckCircle size={12} className="text-emerald-600 flex-shrink-0" />
-                    <span className="truncate">Your registered phone number from account</span>
-                  </p>
+                  <div className="flex items-center gap-1 mt-1.5">
+                    <FiCheckCircle size={10} className="text-emerald-600 flex-shrink-0" />
+                    <p className="text-[9px] text-gray-500">Verified mobile number</p>
+                  </div>
                 </div>
               </div>
             </div>
 
             <form onSubmit={handleSubmit}>
+              
               {/* Receiver Name */}
               <div className="mb-4">
-                <label className="block text-gray-700 font-semibold text-sm sm:text-base mb-2">
+                <label className="block text-gray-700 font-semibold text-xs sm:text-sm mb-1.5">
                   Receiver's Full Name
                 </label>
                 <input
@@ -145,7 +155,7 @@ function Withdrawal() {
                   name="receiverName"
                   value={formData.receiverName}
                   onChange={handleChange}
-                  className="w-full px-4 py-2 sm:py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition text-sm sm:text-base"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition"
                   placeholder="Enter receiver's full name"
                   required
                 />
@@ -153,71 +163,71 @@ function Withdrawal() {
 
               {/* Phone Number (read-only) */}
               <div className="mb-4">
-                <label className="block text-gray-700 font-semibold text-sm sm:text-base mb-2">
+                <label className="block text-gray-700 font-semibold text-xs sm:text-sm mb-1.5">
                   Receiver's Phone Number
                 </label>
                 <div className="relative">
-                  <FiPhone className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                  <FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={13} />
                   <input
                     type="tel"
                     value={registeredPhone}
                     disabled
-                    className="w-full pl-12 pr-4 py-2 sm:py-3 border border-gray-200 rounded-xl bg-gray-50 text-gray-600 text-sm sm:text-base cursor-not-allowed"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
                   />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">Auto-filled from your registered account</p>
+                <p className="text-[9px] text-gray-400 mt-1">Auto-filled from your registered account</p>
               </div>
 
               {/* Amount */}
-              <div className="mb-4 sm:mb-6">
-                <label className="block text-gray-700 font-semibold text-sm sm:text-base mb-2">
+              <div className="mb-5">
+                <label className="block text-gray-700 font-semibold text-xs sm:text-sm mb-1.5">
                   Amount (RWF)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">RWF</span>
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium text-sm">RWF</span>
                   <input
                     type="number"
                     name="amount"
                     value={formData.amount}
                     onChange={handleChange}
-                    className="w-full pl-16 pr-4 py-2 sm:py-3 text-xl sm:text-2xl border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition"
+                    className="w-full pl-12 pr-3 py-2.5 text-lg sm:text-xl border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition"
                     placeholder="0"
                     required
                     min="100"
                     step="100"
                   />
                 </div>
-                <p className="text-xs sm:text-sm text-gray-400 mt-1">Minimum withdrawal: 100 RWF</p>
+                <p className="text-[9px] text-gray-400 mt-1">Minimum withdrawal: 100 RWF</p>
               </div>
 
               {/* Error/Success Messages */}
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl flex items-start gap-2">
-                  <FiAlertCircle size={16} className="mt-0.5 flex-shrink-0" />
-                  <span className="text-xs sm:text-sm">{error}</span>
+                <div className="mb-4 p-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-start gap-2 animate-fadeIn">
+                  <FiAlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                  <span className="text-[11px]">{error}</span>
                 </div>
               )}
 
               {success && (
-                <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl flex items-start gap-2">
-                  <FiCheckCircle size={16} className="mt-0.5 flex-shrink-0" />
-                  <span className="text-xs sm:text-sm">{success}</span>
+                <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg flex items-start gap-2 animate-fadeIn">
+                  <FiCheckCircle size={12} className="mt-0.5 flex-shrink-0" />
+                  <span className="text-[11px]">{success}</span>
                 </div>
               )}
 
               {/* Info Notice */}
-              <div className="bg-amber-50 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 flex items-start gap-2 sm:gap-3 border border-amber-100">
-                <FiClock size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
-                <p className="text-xs sm:text-sm text-amber-800">
+              <div className="bg-amber-50 rounded-lg p-3 mb-5 flex items-start gap-2 border border-amber-100">
+                <FiClock size={12} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                <p className="text-[10px] text-amber-800 leading-relaxed">
                   Withdrawal requests require admin approval. Money will be sent to <strong className="font-mono">{registeredPhone}</strong>
                 </p>
               </div>
 
-              {/* Submit Button - Red/Pink Gradient */}
+              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={loading || !registeredPhone}
-                className="w-full bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold py-2 sm:py-3 rounded-xl hover:from-red-700 hover:to-pink-700 transition disabled:opacity-50 text-sm sm:text-base shadow-sm"
+                className="w-full bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold py-2.5 rounded-lg hover:from-red-700 hover:to-pink-700 transition disabled:opacity-50 text-sm shadow-sm active:scale-[0.98]"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -226,7 +236,7 @@ function Withdrawal() {
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2">
-                    <FiSend size={16} />
+                    <FiSend size={14} />
                     Request Withdrawal
                   </span>
                 )}
@@ -235,30 +245,32 @@ function Withdrawal() {
 
             {/* Pending Withdrawals */}
             {pendingWithdrawals.length > 0 && (
-              <div className="mt-6 sm:mt-8">
-                <h3 className="font-semibold text-gray-800 mb-3 text-sm sm:text-base flex items-center gap-2">
-                  <FiClock size={16} className="text-amber-500" />
+              <div className="mt-6">
+                <h3 className="font-semibold text-gray-800 mb-2 text-[11px] flex items-center gap-1.5">
+                  <FiClock size={11} className="text-amber-500" />
                   Pending Requests ({pendingWithdrawals.length})
                 </h3>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {pendingWithdrawals.map((withdrawal) => (
-                    <div key={withdrawal._id} className="bg-gray-50 rounded-xl p-3 sm:p-4 border border-gray-100 hover:shadow-sm transition">
-                      <div className="flex justify-between items-start gap-2 flex-wrap">
+                    <div key={withdrawal._id} className="bg-gray-50 rounded-lg p-3 border border-gray-100 hover:shadow-sm transition-all active:bg-gray-100">
+                      <div className="flex justify-between items-start gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-800 text-sm sm:text-base truncate">{withdrawal.receiverName}</p>
-                          <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                            <FiPhone size={12} /> {withdrawal.receiverPhone}
+                          <p className="font-medium text-gray-800 text-xs truncate">{withdrawal.receiverName}</p>
+                          <p className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
+                            <FiPhone size={9} /> {withdrawal.receiverPhone}
                           </p>
-                          <p className="text-sm font-semibold text-red-600 mt-2">
-                            -RWF {withdrawal.amount.toLocaleString()}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                            <FiClock size={10} />
-                            {new Date(withdrawal.createdAt).toLocaleString()}
-                          </p>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <p className="text-[11px] font-semibold text-red-600">
+                              -RWF {withdrawal.amount.toLocaleString()}
+                            </p>
+                            <p className="text-[9px] text-gray-400 flex items-center gap-0.5">
+                              <FiClock size={8} />
+                              {new Date(withdrawal.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
                         </div>
-                        <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium flex items-center gap-1 whitespace-nowrap">
-                          <FiClock size={10} /> Pending
+                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[9px] font-medium flex items-center gap-1 whitespace-nowrap">
+                          <FiClock size={8} /> Pending
                         </span>
                       </div>
                     </div>
@@ -269,16 +281,32 @@ function Withdrawal() {
           </div>
         </div>
 
-        {/* Info Footer */}
-        <div className="mt-4 sm:mt-6 bg-blue-50 rounded-xl p-3 sm:p-4 border border-blue-100">
+        {/* Info Footer - Compact */}
+        <div className="mt-4 bg-blue-50 rounded-lg p-2.5 border border-blue-100">
           <div className="flex items-center justify-center gap-2 flex-wrap">
-            <FiShield size={14} className="text-blue-600" />
-            <p className="text-xs sm:text-sm text-blue-800 text-center">
-              Withdrawals are processed by admin. Money will be sent to: <strong className="font-mono">{registeredPhone}</strong>
+            <FiShield size={12} className="text-blue-600 flex-shrink-0" />
+            <p className="text-[9px] sm:text-[10px] text-blue-800 text-center">
+              Withdrawals processed by admin to: <strong className="font-mono">{registeredPhone}</strong>
             </p>
           </div>
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-5px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fadeIn {
+          animation: fadeIn 0.25s ease-out;
+        }
+      `}</style>
     </Layout>
   );
 }

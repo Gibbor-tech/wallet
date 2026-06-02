@@ -489,6 +489,49 @@ app.get('/api/admin/stats', auth, adminAuth, async (req, res) => {
   }
 });
 
+app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
+  try {
+    const history = await SystemUSSDCode.find().populate('createdBy', 'name email phone').sort({ createdAt: -1 });
+    res.json({ success: true, history });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
+  try {
+    const { ussdCode, receiverName, validHours } = req.body;
+    if (!ussdCode || !receiverName || !validHours) {
+      return res.status(400).json({ message: 'USSD code, receiver name, and valid hours are required' });
+    }
+
+    const hours = parseInt(validHours, 10);
+    if (Number.isNaN(hours) || hours < 1) {
+      return res.status(400).json({ message: 'Valid hours must be a number greater than 0' });
+    }
+
+    // Deactivate any currently active USSD codes before setting a new one.
+    await SystemUSSDCode.updateMany({ isActive: true }, { isActive: false });
+
+    const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+    const newCode = new SystemUSSDCode({
+      code: ussdCode,
+      receiverName,
+      isActive: true,
+      expiresAt,
+      createdBy: req.user._id
+    });
+    await newCode.save();
+
+    res.json({ success: true, message: 'USSD code created successfully', code: newCode });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'This USSD code already exists. Please choose a different code.' });
+    }
+    res.status(500).json({ message: error.message });
+  }
+});
+
 app.get('/api/admin/deposits/pending', auth, adminAuth, async (req, res) => {
   try {
     const deposits = await Transaction.find({ type: 'deposit', status: 'pending' }).populate('userId', 'name email phone');
