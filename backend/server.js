@@ -384,6 +384,8 @@ app.get('/api/deposit/pending', auth, async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+     
+
 
 // ==================== WITHDRAWAL ROUTES ====================
 
