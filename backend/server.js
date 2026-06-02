@@ -13,12 +13,18 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/wallet_app';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://gibbor3kg:13%40Gibbor12@cluster0.1vwqgk9.mongodb.net/swiftpayDB?retryWrites=true&w=majority';
 
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('MongoDB connected successfully'))
-  .catch(err => console.error('MongoDB connection error:', err));
-
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 15000,
+  socketTimeoutMS: 45000,
+})
+.then(() => {
+  console.log('✅ MongoDB Atlas connected successfully');
+})
+.catch(err => {
+  console.error('❌ MongoDB connection error:', err.message);
+});
 // ==================== MODELS ====================
 
 // User Model Schema
