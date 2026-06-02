@@ -39,6 +39,7 @@ const userSchema = new mongoose.Schema({
   },
   balance: { type: Number, default: 0 },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  isActive: { type: Boolean, default: true },
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   referralBonusEarned: { type: Number, default: 0 },
@@ -89,9 +90,10 @@ const ReferralBonus = mongoose.model('ReferralBonus', referralBonusSchema);
 // System USSD Code Model - Updated with receiverName
 const systemUSSDCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
-  receiverName: { type: String, required: true }, // New field
+  receiverName: { type: String, required: true },
   isActive: { type: Boolean, default: true },
   expiresAt: { type: Date, required: true },
+  validHours: { type: Number, default: 24 },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now }
 });
@@ -127,9 +129,12 @@ const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) throw new Error();
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) throw new Error();
+    if (!user.isActive) {
+      return res.status(403).json({ message: 'Account is inactive. Please contact support.' });
+    }
     req.user = user;
     next();
   } catch (error) {
@@ -266,6 +271,9 @@ app.post('/api/auth/login', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    if (!user.isActive) {
+      return res.status(403).json({ message: 'Your account is inactive. Please contact support.' });
     }
     const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
     res.json({
@@ -498,6 +506,82 @@ app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
   }
 });
 
+app.get('/api/admin/users', auth, adminAuth, async (req, res) => {
+  try {
+    const { search, role, status } = req.query;
+    const filter = {};
+
+    if (role) {
+      filter.role = role;
+    }
+
+    if (status === 'active') {
+      filter.isActive = true;
+    } else if (status === 'inactive') {
+      filter.isActive = false;
+    }
+
+    if (search) {
+      const query = search.trim();
+      filter.$or = [
+        { name: { $regex: query, $options: 'i' } },
+        { email: { $regex: query, $options: 'i' } },
+        { phone: { $regex: query, $options: 'i' } }
+      ];
+    }
+
+    const users = await User.find(filter).select('-password').sort({ createdAt: -1 });
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.patch('/api/admin/users/:id/status', auth, adminAuth, async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ message: 'isActive must be a boolean' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.role === 'admin' && !user._id.equals(req.user._id)) {
+      // Allow blocking other admins only if desired; for now, keep it possible
+    }
+
+    user.isActive = isActive;
+    await user.save();
+
+    res.json({ success: true, message: `User ${isActive ? 'activated' : 'deactivated'} successfully`, user: user.toObject() });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.patch('/api/admin/users/:id/role', auth, adminAuth, async (req, res) => {
+  try {
+    const { role } = req.body;
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+
+    if (req.user._id.toString() === req.params.id && role !== 'admin') {
+      return res.status(400).json({ message: 'Cannot remove admin rights from yourself' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.role = role;
+    await user.save();
+
+    res.json({ success: true, message: 'User role updated successfully', user: user.toObject() });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
   try {
     const { ussdCode, receiverName, validHours } = req.body;
@@ -519,6 +603,7 @@ app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
       receiverName,
       isActive: true,
       expiresAt,
+      validHours: hours,
       createdBy: req.user._id
     });
     await newCode.save();
@@ -528,6 +613,30 @@ app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({ message: 'This USSD code already exists. Please choose a different code.' });
     }
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.post('/api/admin/ussd/activate/:id', auth, adminAuth, async (req, res) => {
+  try {
+    const code = await SystemUSSDCode.findById(req.params.id);
+    if (!code) return res.status(404).json({ message: 'USSD code not found' });
+
+    if (code.isActive && code.expiresAt > new Date()) {
+      return res.json({ success: true, message: 'USSD code is already active', code });
+    }
+
+    await SystemUSSDCode.updateMany({ isActive: true }, { isActive: false });
+
+    if (code.expiresAt <= new Date()) {
+      code.expiresAt = new Date(Date.now() + (code.validHours || 24) * 60 * 60 * 1000);
+    }
+
+    code.isActive = true;
+    await code.save();
+
+    res.json({ success: true, message: 'USSD code activated successfully', code });
+  } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });

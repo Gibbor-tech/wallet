@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { FiFilter } from 'react-icons/fi';
 
 function WithdrawalProcessing() {
   const [withdrawals, setWithdrawals] = useState([]);
+  const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const navigate = useNavigate();
@@ -25,6 +27,20 @@ function WithdrawalProcessing() {
       setLoading(false);
     }
   };
+
+  const filteredWithdrawals = withdrawals.filter((withdrawal) => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return true;
+    return [
+      withdrawal.userId?.name,
+      withdrawal.userId?.phone,
+      withdrawal.receiverName,
+      withdrawal.receiverPhone,
+      withdrawal.description
+    ]
+      .filter(Boolean)
+      .some((value) => value.toLowerCase().includes(q));
+  });
 
   const handleComplete = async (withdrawalId) => {
     const withdrawal = withdrawals.find(w => w._id === withdrawalId);
@@ -71,13 +87,48 @@ function WithdrawalProcessing() {
 
       <div className="container mx-auto p-6">
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Pending Withdrawal Requests</h2>
-          
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-bold text-gray-800">Pending Withdrawal Requests</h2>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <FiFilter className="text-gray-400" size={18} />
+              <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter by user, receiver name, or phone"
+                className="w-full sm:w-80 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+              />
+              {filter && (
+                <button
+                  onClick={() => setFilter('')}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
           {withdrawals.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No pending withdrawal requests</p>
+          ) : filteredWithdrawals.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No withdrawal requests match your filter</p>
           ) : (
             <div className="space-y-4">
-              {withdrawals.map((withdrawal) => (
+              {filteredWithdrawals
+                .filter((withdrawal) => {
+                  const q = filter.trim().toLowerCase();
+                  if (!q) return true;
+                  return [
+                    withdrawal.userId?.name,
+                    withdrawal.userId?.phone,
+                    withdrawal.receiverName,
+                    withdrawal.receiverPhone,
+                    withdrawal.description
+                  ]
+                    .filter(Boolean)
+                    .some((value) => value.toLowerCase().includes(q));
+                })
+                .map((withdrawal) => (
                 <div key={withdrawal._id} className="border rounded-lg p-4 hover:shadow-md transition">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">

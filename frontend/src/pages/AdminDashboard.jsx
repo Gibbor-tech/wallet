@@ -6,12 +6,13 @@ import {
   FiZap, FiUsers, FiClock, FiDollarSign, FiSettings, 
   FiCheckCircle, FiXCircle, FiEye, FiLogOut, FiArrowDown, 
   FiArrowUp, FiCopy, FiCalendar, FiShield, FiAlertCircle,
-  FiUser, FiPhone, FiTrendingUp, FiTrendingDown
+  FiUser, FiPhone, FiFilter, FiTrendingUp, FiTrendingDown
 } from 'react-icons/fi';
 
 function AdminDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const currentUserId = user?.id || user?._id;
   
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -26,6 +27,11 @@ function AdminDashboard() {
   const [ussdHistory, setUssdHistory] = useState([]);
   const [pendingDeposits, setPendingDeposits] = useState([]);
   const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userStatusFilter, setUserStatusFilter] = useState('all');
+  const [userActionLoading, setUserActionLoading] = useState(null);
   const [showSetModal, setShowSetModal] = useState(false);
   const [newUssd, setNewUssd] = useState({
     code: '',
@@ -34,7 +40,7 @@ function AdminDashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const [copied, setCopied] = useState(false);
+  const [copiedCodeId, setCopiedCodeId] = useState(null);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -47,17 +53,19 @@ function AdminDashboard() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [statsRes, historyRes, depositsRes, withdrawalsRes] = await Promise.all([
+      const [statsRes, historyRes, depositsRes, withdrawalsRes, usersRes] = await Promise.all([
         axios.get('http://localhost:5000/api/admin/stats'),
         axios.get('http://localhost:5000/api/admin/ussd/history'),
         axios.get('http://localhost:5000/api/admin/deposits/pending'),
-        axios.get('http://localhost:5000/api/admin/withdrawals/pending')
+        axios.get('http://localhost:5000/api/admin/withdrawals/pending'),
+        axios.get('http://localhost:5000/api/admin/users')
       ]);
       
       if (statsRes.data.success) setStats(statsRes.data.stats);
       if (historyRes.data.success) setUssdHistory(historyRes.data.history);
       if (depositsRes.data.success) setPendingDeposits(depositsRes.data.deposits);
       if (withdrawalsRes.data.success) setPendingWithdrawals(withdrawalsRes.data.withdrawals);
+      if (usersRes.data.success) setUsers(usersRes.data.users);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -115,11 +123,66 @@ function AdminDashboard() {
     }
   };
 
-  const copyToClipboard = (code) => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleActivateUSSD = async (ussdId) => {
+    if (!window.confirm("Activate this USSD code?")) return;
+    try {
+      await axios.post(`http://localhost:5000/api/admin/ussd/activate/${ussdId}`);
+      alert('USSD code activated successfully');
+      fetchAllData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Error activating USSD code');
+    }
   };
+
+  const handleToggleUserStatus = async (userId, isActive) => {
+    if (!window.confirm(`Are you sure you want to ${isActive ? 'activate' : 'deactivate'} this user?`)) return;
+    setUserActionLoading(userId);
+    try {
+      await axios.patch(`http://localhost:5000/api/admin/users/${userId}/status`, { isActive });
+      alert(`User ${isActive ? 'activated' : 'deactivated'} successfully`);
+      fetchAllData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Error changing user status');
+    } finally {
+      setUserActionLoading(null);
+    }
+  };
+
+  const handleChangeUserRole = async (userId, role) => {
+    if (!window.confirm(`Change role to ${role}?`)) return;
+    setUserActionLoading(userId);
+    try {
+      await axios.patch(`http://localhost:5000/api/admin/users/${userId}/role`, { role });
+      alert('User role updated successfully');
+      fetchAllData();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Error updating user role');
+    } finally {
+      setUserActionLoading(null);
+    }
+  };
+
+  const copyToClipboard = (code, id) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCodeId(id);
+    setTimeout(() => setCopiedCodeId(null), 2000);
+  };
+
+  const filteredUsers = users.filter((userItem) => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q && userRoleFilter === 'all' && userStatusFilter === 'all') return true;
+
+    const matchesQuery = q
+      ? [userItem.name, userItem.email, userItem.phone, userItem.role]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(q))
+      : true;
+
+    const matchesRole = userRoleFilter === 'all' ? true : userItem.role === userRoleFilter;
+    const matchesStatus = userStatusFilter === 'all' ? true : userStatusFilter === 'active' ? userItem.isActive : !userItem.isActive;
+
+    return matchesQuery && matchesRole && matchesStatus;
+  });
 
   const handleLogout = () => {
     logout();
@@ -187,6 +250,14 @@ function AdminDashboard() {
           </button>
           
           <button 
+            onClick={() => setActiveTab("users")} 
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${activeTab === "users" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
+          >
+            <FiUsers size={18} />
+            <span className="text-sm">Users ({stats.totalUsers})</span>
+          </button>
+          
+          <button 
             onClick={() => setActiveTab("ussd")} 
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${activeTab === "ussd" ? "bg-gray-100 text-gray-900 font-medium" : "text-gray-600 hover:bg-gray-50"}`}
           >
@@ -200,6 +271,14 @@ function AdminDashboard() {
           >
             <FiEye size={18} />
             <span className="text-sm">All Transactions</span>
+          </button>
+
+          <button 
+            onClick={() => navigate('/admin/users')} 
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-50 transition"
+          >
+            <FiUsers size={18} />
+            <span className="text-sm">Manage Users</span>
           </button>
         </nav>
 
@@ -447,6 +526,117 @@ function AdminDashboard() {
           </div>
         )}
 
+        {/* Users Tab */}
+        {activeTab === "users" && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-semibold text-gray-800">User Management</h2>
+                <p className="text-sm text-gray-500 mt-1">Search, filter, and manage registered users.</p>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Search by name, email, or phone"
+                  className="w-full sm:w-72 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                />
+                <select
+                  value={userRoleFilter}
+                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                >
+                  <option value="all">All Roles</option>
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <select
+                  value={userStatusFilter}
+                  onChange={(e) => setUserStatusFilter(e.target.value)}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Phone</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="text-center py-12 text-gray-500">No users match this filter</td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((userItem) => (
+                      <tr key={userItem._id} className="border-t border-gray-100 hover:bg-gray-50 transition">
+                        <td className="px-5 py-4">
+                          <p className="font-medium text-gray-900">{userItem.name}</p>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-600">{userItem.email}</td>
+                        <td className="px-5 py-4 text-sm text-gray-600">{userItem.phone}</td>
+                        <td className="px-5 py-4">
+                          <span className="inline-flex rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                            {userItem.role}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${userItem.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                            {userItem.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-sm text-gray-500">{new Date(userItem.createdAt).toLocaleDateString()}</td>
+                        <td className="px-5 py-4">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => handleToggleUserStatus(userItem._id, !userItem.isActive)}
+                              disabled={userActionLoading === userItem._id}
+                              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition ${userItem.isActive ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                            >
+                              {userItem.isActive ? <FiXCircle size={14} /> : <FiCheckCircle size={14} />}
+                              {userItem.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            {userItem.role === 'admin' ? (
+                              <button
+                                onClick={() => handleChangeUserRole(userItem._id, 'user')}
+                                disabled={userActionLoading === userItem._id || currentUserId === userItem._id}
+                                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <FiXCircle size={14} /> {currentUserId === userItem._id ? 'Current Admin' : 'Demote'}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleChangeUserRole(userItem._id, 'admin')}
+                                disabled={userActionLoading === userItem._id}
+                                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition"
+                              >
+                                <FiUsers size={14} /> Promote
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* USSD Codes Tab */}
         {activeTab === "ussd" && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -506,15 +696,34 @@ function AdminDashboard() {
                           <td className="px-5 py-3 text-sm">{code.createdBy?.name || 'N/A'}</td>
                           <td className="px-5 py-3 text-sm">{new Date(code.createdAt).toLocaleDateString()}</td>
                           <td className="px-5 py-3">
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(code.code)}
-                              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition"
-                            >
-                              <FiCopy size={14} />
-                              Copy
-                            </button>
-                            {copied && <div className="mt-2 text-[11px] text-emerald-600">Copied!</div>}
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(code.code, code._id)}
+                                title="Copy USSD code"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition"
+                              >
+                                <FiCopy size={16} />
+                              </button>
+
+                              {!isActive ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleActivateUSSD(code._id)}
+                                  title="Activate USSD"
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-green-600 text-white shadow-sm hover:bg-green-700 transition"
+                                >
+                                  <FiArrowUp size={16} />
+                                </button>
+                              ) : (
+                                <span className="inline-flex h-9 items-center justify-center rounded-full bg-emerald-100 px-3 text-[11px] font-semibold text-emerald-700">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                            {copiedCodeId === code._id && (
+                              <div className="mt-2 text-[11px] text-emerald-600">Copied!</div>
+                            )}
                           </td>
                         </tr>
                       );

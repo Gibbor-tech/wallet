@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { FiFilter } from 'react-icons/fi';
 
 function DepositApproval() {
   const [deposits, setDeposits] = useState([]);
+  const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(null);
   const navigate = useNavigate();
@@ -25,6 +27,20 @@ function DepositApproval() {
       setLoading(false);
     }
   };
+
+  const filteredDeposits = deposits.filter((deposit) => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return true;
+    return [
+      deposit.userId?.name,
+      deposit.userId?.phone,
+      deposit.userId?.email,
+      deposit.ussdCode,
+      deposit.description
+    ]
+      .filter(Boolean)
+      .some((value) => value.toLowerCase().includes(q));
+  });
 
   const handleApprove = async (depositId) => {
     if (!confirm('Has the user completed the payment? This will credit their wallet.')) {
@@ -87,13 +103,34 @@ function DepositApproval() {
 
       <div className="container mx-auto p-6">
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Pending Deposit Requests</h2>
-          
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-bold text-gray-800">Pending Deposit Requests</h2>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <FiFilter className="text-gray-400" size={18} />
+              <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter by name, phone, email, or USSD"
+                className="w-full sm:w-80 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+              />
+              {filter && (
+                <button
+                  onClick={() => setFilter('')}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
           {deposits.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No pending deposit requests</p>
+          ) : filteredDeposits.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">No deposit requests match your filter</p>
           ) : (
             <div className="space-y-4">
-              {deposits.map((deposit) => (
+              {filteredDeposits.map((deposit) => (
                 <div key={deposit._id} className="border rounded-lg p-4 hover:shadow-md transition">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
