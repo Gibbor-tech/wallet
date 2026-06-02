@@ -469,49 +469,56 @@ function AdminDashboard() {
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Expires At</th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Set By</th>
                     <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Set On</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ussdHistory.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="text-center py-12 text-gray-500">No USSD codes set yet</td>
+                      <td colSpan="7" className="text-center py-12 text-gray-500">No USSD codes set yet</td>
                     </tr>
                   ) : (
-                    ussdHistory.map(code => (
-                      <tr key={code._id} className="border-t border-gray-100">
-                        <td className="px-5 py-3">
-                          <code className="font-mono font-bold text-blue-600">{code.code}</code>
-                          <button 
-                            onClick={() => copyToClipboard(code.code)} 
-                            className="ml-2 text-gray-400 hover:text-gray-600 transition"
-                            title="Copy to clipboard"
-                          >
-                            <FiCopy size={14} />
-                          </button>
-                          {copied && <span className="ml-2 text-xs text-emerald-600">Copied!</span>}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-1">
-                            <FiUser size={12} className="text-gray-400" />
-                            <span className="text-sm">{code.receiverName || 'N/A'}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            code.isActive && new Date(code.expiresAt) > new Date() 
-                              ? 'bg-emerald-100 text-emerald-700' 
-                              : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {code.isActive && new Date(code.expiresAt) > new Date() ? 'Active' : 'Expired'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 text-sm text-gray-500">
-                          {new Date(code.expiresAt).toLocaleString()}
-                        </td>
-                        <td className="px-5 py-3 text-sm">{code.createdBy?.name || 'N/A'}</td>
-                        <td className="px-5 py-3 text-sm">{new Date(code.createdAt).toLocaleDateString()}</td>
-                      </tr>
-                    ))
+                    ussdHistory.map(code => {
+                      const isActive = code.isActive && new Date(code.expiresAt) > new Date();
+                      return (
+                        <tr key={code._id} className="border-t border-gray-100">
+                          <td className="px-5 py-3">
+                            <code className="font-mono font-bold text-blue-600">{code.code}</code>
+                          </td>
+                          <td className="px-5 py-3">
+                            <div className="flex items-center gap-1">
+                              <FiUser size={12} className="text-gray-400" />
+                              <span className="text-sm">{code.receiverName || 'N/A'}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              isActive
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {isActive ? 'Active' : 'Expired'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-sm text-gray-500">
+                            {new Date(code.expiresAt).toLocaleString()}
+                          </td>
+                          <td className="px-5 py-3 text-sm">{code.createdBy?.name || 'N/A'}</td>
+                          <td className="px-5 py-3 text-sm">{new Date(code.createdAt).toLocaleDateString()}</td>
+                          <td className="px-5 py-3">
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(code.code)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition"
+                            >
+                              <FiCopy size={14} />
+                              Copy
+                            </button>
+                            {copied && <div className="mt-2 text-[11px] text-emerald-600">Copied!</div>}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
