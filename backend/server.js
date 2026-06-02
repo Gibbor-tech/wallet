@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://gibbor3kg:13%40Gibbor12@cluster0.1vwqgk9.mongodb.net/swiftpayDB?retryWrites=true&w=majority';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 mongoose.connect(MONGODB_URI, {
   serverSelectionTimeoutMS: 15000,
