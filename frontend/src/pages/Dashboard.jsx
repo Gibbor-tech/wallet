@@ -75,14 +75,7 @@ function Dashboard() {
         {/* Welcome Section */}
         <section className="mb-1">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold text-gray-800">
-                Welcome back, <span className="text-blue-600">{user?.name?.split(' ')[0] || 'User'}</span>
-              </h1>
-              <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
-                Manage your wallet and transactions
-              </p>
-            </div>
+
             <button 
               onClick={fetchData}
               disabled={loading}
