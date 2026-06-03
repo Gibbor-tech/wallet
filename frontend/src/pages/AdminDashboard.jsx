@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import api from '../api';
 import { 
   FiZap, FiUsers, FiClock, FiDollarSign, FiSettings, 
   FiCheckCircle, FiXCircle, FiEye, FiLogOut, FiArrowDown, 
@@ -401,7 +401,9 @@ function AdminDashboard() {
                 <tbody>
                   {pendingDeposits.length === 0 ? (
                     <tr className="border-t border-gray-100">
-                      <td colSpan="4" className="text-center py-12 text-gray-500">No pending deposits</tr>
+                      <td colSpan="4" className="text-center py-12 text-gray-500">No pending deposits</td>
+                      </tr>
+
                   ) : (
                     pendingDeposits.map(deposit => (
                       <tr key={deposit._id} className="border-t border-gray-100 hover:bg-gray-50 transition">
@@ -546,7 +548,8 @@ function AdminDashboard() {
                 <tbody>
                   {filteredTransactions.length === 0 ? (
                     <tr className="border-t border-gray-100">
-                      <td colSpan="6" className="text-center py-12 text-gray-500">No transactions found</tr>
+                      <td colSpan="6" className="text-center py-12 text-gray-500">No transactions found</td>
+                      </tr>
                   ) : (
                     filteredTransactions.map(transaction => (
                       <tr key={transaction._id} className="border-t border-gray-100 hover:bg-gray-50 transition">
