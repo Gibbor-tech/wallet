@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
-import api from '../services/api'; // Use your API service
+import api from '../api'; // Use your API service
 import Layout from '../components/Layout';
 import { 
   FiArrowDown, FiArrowUp, FiRefreshCw, FiTrendingUp, FiTrendingDown, FiZap,
