@@ -5,12 +5,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const crypto = require('crypto');
-
 const app = express();
 
 // Middleware
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
+  origin: process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
