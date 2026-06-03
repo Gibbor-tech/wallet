@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from "../api";
 import Layout from '../components/Layout';
 import { FiArrowDown, FiCopy, FiCheck, FiAlertCircle, FiInfo } from 'react-icons/fi';
 
@@ -22,18 +22,19 @@ function Deposit() {
 
   const checkActiveUSSD = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/ussd/active');
+      const response = await api.get('/api/ussd/active');
       if (response.data.success) {
         setActiveUSSD(response.data.ussdCode);
       }
     } catch (error) {
       console.error('Error checking USSD:', error);
+      setError('Could not fetch USSD code. Please try again.');
     }
   };
 
   const checkPendingDeposit = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/deposit/pending');
+      const response = await api.get('/api/deposit/pending');
       if (response.data.success && response.data.deposit) {
         setPendingDeposit(response.data.deposit);
         setStep(2);
@@ -56,7 +57,7 @@ function Deposit() {
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/deposit/submit', { amount: amountNum });
+      const response = await api.post('/api/deposit/submit', { amount: amountNum });
       
       if (response.data.success) {
         setSubmittedTransaction(response.data.transaction);
@@ -72,7 +73,7 @@ function Deposit() {
   const handleConfirmPayment = async () => {
     setLoading(true);
     try {
-      await axios.post(`http://localhost:5000/api/deposit/confirm/${submittedTransaction?.id || pendingDeposit?._id}`);
+      await api.post(`/api/deposit/confirm/${submittedTransaction?.id || pendingDeposit?._id}`);
       setStep(3);
     } catch (error) {
       setError('Error confirming payment');

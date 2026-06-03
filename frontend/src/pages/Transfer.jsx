@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api'; // Use your API service instead of direct axios
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
 import { 
@@ -37,7 +37,7 @@ function Transfer() {
     setError('');
     
     try {
-      const response = await axios.get(`http://localhost:5000/api/transfer/search?phone=${formData.recipientPhone}`);
+      const response = await api.get(`/api/transfer/search?phone=${formData.recipientPhone}`);
       if (response.data.success) {
         setSearchedUser(response.data.user);
         setStep(2);
@@ -70,7 +70,7 @@ function Transfer() {
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/transfer/send', {
+      const response = await api.post('/api/transfer/send', {
         recipientPhone: formData.recipientPhone,
         amount: amountNum,
         description: formData.description
@@ -78,6 +78,7 @@ function Transfer() {
       
       if (response.data.success) {
         setSuccess(response.data.message);
+        // Update local user balance if possible
         setTimeout(() => {
           navigate('/dashboard');
         }, 3000);

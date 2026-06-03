@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
 import { 
@@ -26,7 +26,7 @@ function Withdrawal() {
 
   const fetchPendingWithdrawals = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/withdrawal/pending');
+      const response = await api.get('/api/withdrawal/pending');
       if (response.data.success) setPendingWithdrawals(response.data.withdrawals);
     } catch (error) {
       console.error('Error fetching pending withdrawals:', error);
@@ -57,8 +57,14 @@ function Withdrawal() {
       return;
     }
 
+    if (!registeredPhone) {
+      setError('No phone number registered. Please update your profile.');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await axios.post('http://localhost:5000/api/withdrawal/request', {
+      const response = await api.post('/api/withdrawal/request', {
         receiverName: formData.receiverName,
         receiverPhone: registeredPhone,
         amount: amountNum
@@ -68,7 +74,10 @@ function Withdrawal() {
         setSuccess(response.data.message);
         setFormData({ receiverName: '', amount: '' });
         fetchPendingWithdrawals();
-        setTimeout(() => navigate('/dashboard'), 3000);
+        // Refresh user balance after withdrawal request
+        setTimeout(() => {
+          window.location.reload(); // Reload to update balance
+        }, 3000);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Error creating withdrawal request');
@@ -261,7 +270,7 @@ function Withdrawal() {
                           </p>
                           <div className="flex items-center justify-between mt-1.5">
                             <p className="text-[11px] font-semibold text-red-600">
-                              -RWF {withdrawal.amount.toLocaleString()}
+                              -RWF {withdrawal.amount?.toLocaleString()}
                             </p>
                             <p className="text-[9px] text-gray-400 flex items-center gap-0.5">
                               <FiClock size={8} />
