@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api'; // Use your API service
 import Layout from '../components/Layout';
 
 function DepositRequest() {
@@ -19,7 +19,7 @@ function DepositRequest() {
 
   const checkPendingDeposit = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/transactions/my-pending-deposit');
+      const response = await api.get('/api/transactions/my-pending-deposit');
       if (response.data.success && response.data.deposit) {
         setPendingDeposit(response.data.deposit);
         if (response.data.deposit.ussdCode) {
@@ -39,7 +39,7 @@ function DepositRequest() {
     setError('');
     
     try {
-      const response = await axios.post('http://localhost:5000/api/transactions/deposit/request', { 
+      const response = await api.post('/api/transactions/deposit/request', { 
         amount: parseFloat(amount) 
       });
       

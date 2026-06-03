@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api'; // Use your API service
 import Layout from '../components/Layout';
 import { 
   FiArrowDown, FiArrowUp, FiRefreshCw, FiTrendingUp, FiTrendingDown, FiZap,
@@ -27,8 +27,8 @@ function Dashboard() {
     setLoading(true);
     try {
       const [balanceRes, transactionsRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/balance'),
-        axios.get('http://localhost:5000/api/transactions')
+        api.get('/api/balance'),
+        api.get('/api/transactions')
       ]);
       
       if (balanceRes.data.success) setBalance(balanceRes.data.balance);
@@ -49,6 +49,10 @@ function Dashboard() {
       }
     } catch (error) {
       console.error('Error fetching data:', error);
+      if (error.response?.status === 401) {
+        // Handle unauthorized
+        window.location.href = '/login';
+      }
     } finally {
       setLoading(false);
     }
@@ -71,9 +75,17 @@ function Dashboard() {
         {/* Welcome Section */}
         <section className="mb-1">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-           
+            <div>
+              <h1 className="text-lg sm:text-xl font-bold text-gray-800">
+                Welcome back, <span className="text-blue-600">{user?.name?.split(' ')[0] || 'User'}</span>
+              </h1>
+              <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
+                Manage your wallet and transactions
+              </p>
+            </div>
             <button 
               onClick={fetchData}
+              disabled={loading}
               className="flex items-center gap-1 px-2 py-1 text-[10px] sm:text-xs text-gray-500 hover:text-blue-600 transition active:scale-95"
             >
               <FiRefreshCw size={10} className={loading ? 'animate-spin' : ''} />
@@ -241,6 +253,7 @@ function Dashboard() {
                     }`}>
                       {transaction.type === 'deposit' && <FiArrowDown className="text-blue-500" size={12} />}
                       {transaction.type === 'transfer' && <FiRefreshCw className="text-purple-500" size={12} />}
+                      {transaction.type === 'transfer_received' && <FiArrowDown className="text-emerald-500" size={12} />}
                       {transaction.type === 'withdrawal' && <FiArrowUp className="text-red-500" size={12} />}
                     </div>
                     <div>

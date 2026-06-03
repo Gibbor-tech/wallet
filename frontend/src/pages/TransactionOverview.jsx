@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api'; // Use your API service
 import { useNavigate } from 'react-router-dom';
 import { 
   FiArrowLeft, FiFilter, FiRefreshCw, FiZap, FiUser, 
@@ -11,6 +11,7 @@ function TransactionOverview() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState({ type: '', status: '' });
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -19,12 +20,13 @@ function TransactionOverview() {
 
   const fetchTransactions = async () => {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams();
       if (filter.type) params.append('type', filter.type);
       if (filter.status) params.append('status', filter.status);
       
-      const response = await axios.get(`http://localhost:5000/api/admin/transactions/all?${params}`);
+      const response = await api.get(`/api/admin/transactions/all?${params}`);
       
       if (response.data.success && Array.isArray(response.data.transactions)) {
         setTransactions(response.data.transactions);
@@ -35,7 +37,11 @@ function TransactionOverview() {
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setError(error.response?.data?.message || 'Failed to load transactions');
       setTransactions([]);
+      if (error.response?.status === 401) {
+        navigate('/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -145,6 +151,13 @@ function TransactionOverview() {
               </div>
             </div>
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="px-4 sm:px-6 py-3 bg-red-50 border-b border-red-100">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
 
           {/* Results Count */}
           <div className="px-4 sm:px-6 py-3 border-b border-gray-100 bg-white">

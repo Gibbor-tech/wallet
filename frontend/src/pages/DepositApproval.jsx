@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api'; // Use your API service
 import { useNavigate } from 'react-router-dom';
 import { FiFilter } from 'react-icons/fi';
 
@@ -17,12 +17,15 @@ function DepositApproval() {
   const fetchDeposits = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('http://localhost:5000/api/admin/deposits/pending');
+      const response = await api.get('/api/admin/deposits/pending');
       if (response.data.success) {
         setDeposits(response.data.deposits);
       }
     } catch (error) {
       console.error('Error fetching deposits:', error);
+      if (error.response?.status === 401) {
+        navigate('/login');
+      }
     } finally {
       setLoading(false);
     }
@@ -49,7 +52,7 @@ function DepositApproval() {
     
     setProcessing(depositId);
     try {
-      await axios.post(`http://localhost:5000/api/admin/deposits/approve/${depositId}`);
+      await api.post(`/api/admin/deposits/approve/${depositId}`);
       alert('Deposit approved successfully! User balance updated.');
       fetchDeposits();
     } catch (error) {
@@ -66,11 +69,11 @@ function DepositApproval() {
     
     setProcessing(depositId);
     try {
-      await axios.post(`http://localhost:5000/api/admin/deposits/reject/${depositId}`);
+      await api.post(`/api/admin/deposits/reject/${depositId}`);
       alert('Deposit rejected');
       fetchDeposits();
     } catch (error) {
-      alert('Error rejecting deposit');
+      alert('Error rejecting deposit: ' + (error.response?.data?.message || error.message));
     } finally {
       setProcessing(null);
     }

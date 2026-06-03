@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api'; // Use your API service
 import Layout from '../components/Layout';
 import { 
   FiArrowDown, FiArrowUp, FiRefreshCw, FiTrendingUp, 
@@ -12,6 +12,7 @@ function Transactions() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [error, setError] = useState('');
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -20,13 +21,19 @@ function Transactions() {
 
   const fetchTransactions = async () => {
     setLoading(true);
+    setError('');
     try {
-      const response = await axios.get('http://localhost:5000/api/transactions');
+      const response = await api.get('/api/transactions');
       if (response.data.success) {
         setTransactions(response.data.transactions);
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setError(error.response?.data?.message || 'Failed to load transactions');
+      if (error.response?.status === 401) {
+        // Redirect to login if unauthorized
+        window.location.href = '/login';
+      }
     } finally {
       setLoading(false);
     }
@@ -155,6 +162,16 @@ function Transactions() {
 
           <div className="p-3 sm:p-5">
             
+            {/* Error Message */}
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-[11px] flex items-center justify-between">
+                <span>{error}</span>
+                <button onClick={fetchTransactions} className="text-red-600 hover:text-red-800">
+                  <FiRefreshCw size={12} />
+                </button>
+              </div>
+            )}
+
             {loading ? (
               // Loading Skeletons
               <div className="space-y-3">
@@ -205,6 +222,11 @@ function Transactions() {
                             <p className="text-[9px] text-gray-400 flex items-center gap-1 mt-0.5">
                               <FiClock size={8} />
                               {new Date(transaction.createdAt).toLocaleDateString()}
+                              {transaction.processedAt && transaction.status === 'approved' && (
+                                <span className="text-[8px] text-green-600 ml-1">
+                                  (Approved: {new Date(transaction.processedAt).toLocaleDateString()})
+                                </span>
+                              )}
                             </p>
                           </div>
                           <div className="text-left sm:text-right">
@@ -227,6 +249,7 @@ function Transactions() {
                                  transaction.type === 'transfer_received' ? 'From: ' : 
                                  transaction.type === 'withdrawal' ? 'To: ' : ''}
                                 {transaction.receiverName}
+                                {transaction.receiverPhone && ` (${transaction.receiverPhone})`}
                               </p>
                             )}
                             {transaction.description && transaction.type !== 'deposit' && (
@@ -329,4 +352,4 @@ function Transactions() {
   );
 }
 
-export default Transactions;
+export default Transactions
