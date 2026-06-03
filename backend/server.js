@@ -9,7 +9,6 @@ const crypto = require('crypto');
 const app = express();
 
 // ==================== CRITICAL: Body Parser MUST be first ====================
-// These MUST come before any routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -20,7 +19,6 @@ const allowedOrigins = process.env.CORS_ORIGIN
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -34,21 +32,70 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 
-// Handle preflight requests
 app.options('*', cors());
 
-// Debug middleware to log all requests (remove in production if needed)
+// Debug middleware
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path} - Body:`, req.body);
+  console.log(`${req.method} ${req.path}`);
   next();
 });
 
-// ==================== MongoDB Connection ====================
-const MONGODB_URI = process.env.MONGODB_URI;
+// ==================== FIXED: MongoDB Connection with Caching ====================
+let cachedDb = null;
+let isConnecting = false;
+let connectionPromise = null;
 
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log('MongoDB connected successfully'))
-  .catch(err => console.error('MongoDB connection error:', err));
+async function connectToDatabase() {
+  // If we have a cached connection, use it
+  if (cachedDb && mongoose.connection.readyState === 1) {
+    console.log('Using cached database connection');
+    return cachedDb;
+  }
+
+  // If we're already connecting, wait for that connection
+  if (isConnecting && connectionPromise) {
+    console.log('Waiting for existing connection attempt...');
+    return connectionPromise;
+  }
+
+  // Start new connection
+  isConnecting = true;
+  console.log('Creating new database connection...');
+  
+  const MONGODB_URI = process.env.MONGODB_URI;
+  
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is not defined in environment variables');
+  }
+  
+  // Increased timeout options for serverless environment
+  const options = {
+    serverSelectionTimeoutMS: 15000,
+    socketTimeoutMS: 45000,
+    connectTimeoutMS: 15000,
+    maxPoolSize: 1,
+    minPoolSize: 1,
+    maxIdleTimeMS: 10000,
+    heartbeatFrequencyMS: 30000,
+  };
+  
+  connectionPromise = mongoose.connect(MONGODB_URI, options)
+    .then(() => {
+      console.log('MongoDB connected successfully');
+      cachedDb = mongoose.connection;
+      isConnecting = false;
+      connectionPromise = null;
+      return cachedDb;
+    })
+    .catch(err => {
+      console.error('MongoDB connection error:', err);
+      isConnecting = false;
+      connectionPromise = null;
+      throw err;
+    });
+  
+  return connectionPromise;
+}
 
 // ==================== MODELS ====================
 
@@ -153,6 +200,8 @@ const auth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) throw new Error();
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    await connectToDatabase();
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) throw new Error();
     req.user = user;
@@ -173,6 +222,7 @@ const adminAuth = async (req, res, next) => {
 
 const createDefaultAdmin = async () => {
   try {
+    await connectToDatabase();
     const adminExists = await User.findOne({ role: 'admin' });
     if (!adminExists) {
       const hashedPassword = await bcrypt.hash('admin123', 10);
@@ -196,10 +246,26 @@ const createDefaultAdmin = async () => {
   }
 };
 
+// ==================== WRAPPER FOR ROUTES ====================
+function withDb(handler) {
+  return async (req, res) => {
+    try {
+      await connectToDatabase();
+      return handler(req, res);
+    } catch (error) {
+      console.error('Database connection error:', error);
+      return res.status(500).json({ 
+        message: 'Database connection error. Please try again.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  };
+}
+
 // ==================== AUTH ROUTES ====================
 
 // Regular registration (NO referral)
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', withDb(async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
     
@@ -229,10 +295,10 @@ app.post('/api/auth/register', async (req, res) => {
     console.error('Registration error:', error);
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // Registration with referral code
-app.post('/api/auth/register-with-referral', async (req, res) => {
+app.post('/api/auth/register-with-referral', withDb(async (req, res) => {
   try {
     const { name, email, password, phone, referralCode } = req.body;
     
@@ -286,10 +352,10 @@ app.post('/api/auth/register-with-referral', async (req, res) => {
     console.error('Registration error:', error);
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', withDb(async (req, res) => {
   try {
     console.log('Login request body:', req.body);
     
@@ -315,19 +381,19 @@ app.post('/api/auth/login', async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // Get current user
-app.get('/api/auth/me', auth, async (req, res) => {
+app.get('/api/auth/me', auth, withDb(async (req, res) => {
   res.json({
     success: true,
     user: { id: req.user._id, name: req.user.name, email: req.user.email, phone: req.user.phone, balance: req.user.balance, role: req.user.role }
   });
-});
+}));
 
 // ==================== REFERRAL ROUTES ====================
 
-app.get('/api/referral/info', auth, async (req, res) => {
+app.get('/api/referral/info', auth, withDb(async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     const completedReferrals = await ReferralBonus.countDocuments({ referrerId: req.user._id, status: 'paid', bonusAmount: { $gt: 0 } });
@@ -352,12 +418,12 @@ app.get('/api/referral/info', auth, async (req, res) => {
     console.error('Referral info error:', error);
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // ==================== USSD ROUTES ====================
 
 // Get active system USSD code
-app.get('/api/ussd/active', auth, async (req, res) => {
+app.get('/api/ussd/active', auth, withDb(async (req, res) => {
   try {
     const activeUSSD = await SystemUSSDCode.findOne({ 
       isActive: true, 
@@ -371,11 +437,11 @@ app.get('/api/ussd/active', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // ==================== DEPOSIT ROUTES ====================
 
-app.post('/api/deposit/submit', auth, async (req, res) => {
+app.post('/api/deposit/submit', auth, withDb(async (req, res) => {
   try {
     const { amount } = req.body;
     if (!amount || amount < 100) return res.status(400).json({ message: 'Minimum deposit amount is 100 RWF' });
@@ -392,9 +458,9 @@ app.post('/api/deposit/submit', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.post('/api/deposit/confirm/:id', auth, async (req, res) => {
+app.post('/api/deposit/confirm/:id', auth, withDb(async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
@@ -406,20 +472,20 @@ app.post('/api/deposit/confirm/:id', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.get('/api/deposit/pending', auth, async (req, res) => {
+app.get('/api/deposit/pending', auth, withDb(async (req, res) => {
   try {
     const pending = await Transaction.findOne({ userId: req.user._id, type: 'deposit', status: 'pending' }).sort({ createdAt: -1 });
     res.json({ success: true, deposit: pending || null });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // ==================== WITHDRAWAL ROUTES ====================
 
-app.post('/api/withdrawal/request', auth, async (req, res) => {
+app.post('/api/withdrawal/request', auth, withDb(async (req, res) => {
   try {
     const { receiverName, receiverPhone, amount } = req.body;
     if (!receiverName || !receiverPhone || !amount) return res.status(400).json({ message: 'All fields are required' });
@@ -437,11 +503,11 @@ app.post('/api/withdrawal/request', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // ==================== TRANSFER ROUTES ====================
 
-app.get('/api/transfer/search', auth, async (req, res) => {
+app.get('/api/transfer/search', auth, withDb(async (req, res) => {
   try {
     const { phone } = req.query;
     if (!phone) return res.status(400).json({ message: 'Phone number is required' });
@@ -453,9 +519,9 @@ app.get('/api/transfer/search', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.post('/api/transfer/send', auth, async (req, res) => {
+app.post('/api/transfer/send', auth, withDb(async (req, res) => {
   try {
     const { recipientPhone, amount, description } = req.body;
     if (!recipientPhone || !amount) return res.status(400).json({ message: 'Recipient and amount required' });
@@ -491,31 +557,31 @@ app.post('/api/transfer/send', auth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // ==================== TRANSACTION ROUTES ====================
 
-app.get('/api/transactions', auth, async (req, res) => {
+app.get('/api/transactions', auth, withDb(async (req, res) => {
   try {
     const transactions = await Transaction.find({ userId: req.user._id }).sort({ createdAt: -1 });
     res.json({ success: true, transactions });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.get('/api/balance', auth, async (req, res) => {
+app.get('/api/balance', auth, withDb(async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     res.json({ success: true, balance: user.balance });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // ==================== ADMIN ROUTES ====================
 
-app.get('/api/admin/stats', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/stats', auth, adminAuth, withDb(async (req, res) => {
   try {
     const totalUsers = await User.countDocuments({ role: 'user' });
     const pendingDeposits = await Transaction.countDocuments({ type: 'deposit', status: 'pending' });
@@ -526,18 +592,18 @@ app.get('/api/admin/stats', auth, adminAuth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.get('/api/admin/ussd/history', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/ussd/history', auth, adminAuth, withDb(async (req, res) => {
   try {
     const history = await SystemUSSDCode.find().populate('createdBy', 'name email phone').sort({ createdAt: -1 });
     res.json({ success: true, history });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
+app.post('/api/admin/ussd/set', auth, adminAuth, withDb(async (req, res) => {
   try {
     const { ussdCode, receiverName, validHours } = req.body;
     if (!ussdCode || !receiverName || !validHours) {
@@ -568,18 +634,18 @@ app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
     }
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.get('/api/admin/deposits/pending', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/deposits/pending', auth, adminAuth, withDb(async (req, res) => {
   try {
     const deposits = await Transaction.find({ type: 'deposit', status: 'pending' }).populate('userId', 'name email phone');
     res.json({ success: true, deposits });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.post('/api/admin/deposits/approve/:id', auth, adminAuth, async (req, res) => {
+app.post('/api/admin/deposits/approve/:id', auth, adminAuth, withDb(async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
@@ -623,18 +689,18 @@ app.post('/api/admin/deposits/approve/:id', auth, adminAuth, async (req, res) =>
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.get('/api/admin/withdrawals/pending', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/withdrawals/pending', auth, adminAuth, withDb(async (req, res) => {
   try {
     const withdrawals = await Transaction.find({ type: 'withdrawal', status: 'pending' }).populate('userId', 'name email phone balance');
     res.json({ success: true, withdrawals });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.post('/api/admin/withdrawals/complete/:id', auth, adminAuth, async (req, res) => {
+app.post('/api/admin/withdrawals/complete/:id', auth, adminAuth, withDb(async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
     if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
@@ -654,9 +720,9 @@ app.post('/api/admin/withdrawals/complete/:id', auth, adminAuth, async (req, res
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
-app.get('/api/admin/transactions/all', auth, adminAuth, async (req, res) => {
+app.get('/api/admin/transactions/all', auth, adminAuth, withDb(async (req, res) => {
   try {
     const { type, status } = req.query;
     const filter = {};
@@ -667,11 +733,31 @@ app.get('/api/admin/transactions/all', auth, adminAuth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-});
+}));
 
 // Health check endpoint for Vercel
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  try {
+    await connectToDatabase();
+    const dbState = mongoose.connection.readyState;
+    const states = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      dbConnection: states[dbState] || 'unknown'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Root endpoint
@@ -679,20 +765,10 @@ app.get('/', (req, res) => {
   res.json({ message: 'SwiftPay API is running', version: '1.0.0' });
 });
 
-// ==================== START SERVER ====================
-
-const PORT = process.env.PORT || 5000;
-
-// For Vercel serverless deployment
-if (process.env.NODE_ENV !== 'production') {
-  createDefaultAdmin().then(() => {
-    app.listen(PORT, () => {
-      console.log(`\n🚀 Server running on port ${PORT}`);
-      console.log(`📍 http://localhost:${PORT}`);
-      console.log(`📍 API available at http://localhost:${PORT}/api`);
-    });
-  });
+// ==================== EXPORT FOR VERCEL ====================
+// Initialize admin only in development
+if (process.env.NODE_ENV !== 'production' && process.env.CREATE_ADMIN === 'true') {
+  createDefaultAdmin();
 }
 
-// Export for Vercel
-module.exports = app;
+module.exports = app;  
