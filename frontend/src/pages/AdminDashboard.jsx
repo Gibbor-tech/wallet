@@ -10,7 +10,7 @@ import {
 } from 'react-icons/fi';
 
 // Get API URL from environment variable
-const API_BASE_URL = (import.meta.env?.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 function AdminDashboard() {
   const { user, logout } = useAuth();
