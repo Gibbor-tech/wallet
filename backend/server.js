@@ -162,6 +162,7 @@ const userSchema = new mongoose.Schema({
   },
   balance: { type: Number, default: 0 },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  isActive: { type: Boolean, default: true },
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   referralBonusEarned: { type: Number, default: 0 },
@@ -239,6 +240,32 @@ const transactionSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
+
+const activityLogSchema = new mongoose.Schema({
+  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  action: { type: String, required: true },
+  targetType: { type: String, required: true },
+  targetId: { type: String },
+  details: { type: mongoose.Schema.Types.Mixed, default: {} },
+  ip: { type: String }
+}, { timestamps: true });
+
+const ActivityLog = mongoose.model('ActivityLog', activityLogSchema);
+
+const logAdminAction = async ({ req, action, targetType, targetId, details = {} }) => {
+  try {
+    await ActivityLog.create({
+      adminId: req.user._id,
+      action,
+      targetType,
+      targetId: targetId ? targetId.toString() : undefined,
+      details,
+      ip: req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || req.connection?.remoteAddress
+    });
+  } catch (error) {
+    console.error('Failed to create audit log:', error);
+  }
+};
 
 // ==================== MIDDLEWARE ====================
 
@@ -1029,6 +1056,163 @@ app.get('/api/admin/stats', auth, adminAuth, withDb(async (req, res) => {
   }
 }));
 
+// ==================== ADMIN USER MANAGEMENT ROUTES ====================
+
+app.get('/api/admin/users', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { search, role, active } = req.query;
+    const filter = {};
+
+    if (role) {
+      filter.role = role;
+    }
+    if (active === 'true') {
+      filter.isActive = true;
+    } else if (active === 'false') {
+      filter.isActive = false;
+    }
+    if (search) {
+      const regex = new RegExp(search.trim(), 'i');
+      filter.$or = [
+        { name: regex },
+        { email: regex },
+        { phone: regex },
+        { referralCode: regex }
+      ];
+    }
+
+    const users = await User.find(filter)
+      .select('name email phone role balance isActive referralCode referralCount referralBonusEarned createdAt updatedAt')
+      .sort({ createdAt: -1 })
+      .limit(200);
+
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Admin users list error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+app.get('/api/admin/users/:id', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Admin user detail error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+app.patch('/api/admin/users/:id', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const updates = {};
+    const allowedFields = ['name', 'email', 'phone', 'role', 'isActive', 'balance'];
+
+    allowedFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    if (updates.email) {
+      const existing = await User.findOne({ email: updates.email.toLowerCase(), _id: { $ne: req.params.id } });
+      if (existing) {
+        return res.status(400).json({ success: false, message: 'Email already in use' });
+      }
+      updates.email = updates.email.toLowerCase();
+    }
+
+    if (updates.phone) {
+      const existing = await User.findOne({ phone: updates.phone, _id: { $ne: req.params.id } });
+      if (existing) {
+        return res.status(400).json({ success: false, message: 'Phone already in use' });
+      }
+    }
+
+    const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true })
+      .select('-password');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await logAdminAction({ req, action: 'Updated user', targetType: 'User', targetId: user._id, details: updates });
+
+    res.json({ success: true, message: 'User updated successfully', user });
+  } catch (error) {
+    console.error('Admin update user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+app.post('/api/admin/users/:id/reset-password', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (user.role === 'admin') {
+      return res.status(403).json({ success: false, message: 'Cannot reset password for admin users' });
+    }
+
+    const newPassword = crypto.randomBytes(4).toString('hex');
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    await logAdminAction({ req, action: 'Reset user password', targetType: 'User', targetId: user._id, details: { email: user.email } });
+
+    res.json({ success: true, message: 'Password reset successfully', newPassword });
+  } catch (error) {
+    console.error('Admin reset password error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+app.delete('/api/admin/users/:id', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (user.role === 'admin') {
+      return res.status(403).json({ success: false, message: 'Cannot delete admin users' });
+    }
+
+    await User.deleteOne({ _id: req.params.id });
+    await Transaction.deleteMany({ userId: req.params.id });
+    await ReferralBonus.deleteMany({ $or: [ { referrerId: req.params.id }, { referredUserId: req.params.id } ] });
+    await logAdminAction({ req, action: 'Deleted user', targetType: 'User', targetId: req.params.id, details: { email: user.email, phone: user.phone } });
+
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Admin delete user error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+app.get('/api/admin/activity-logs', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { action, targetType, limit = 100 } = req.query;
+    const filter = {};
+    if (action) filter.action = new RegExp(action, 'i');
+    if (targetType) filter.targetType = targetType;
+
+    const logs = await ActivityLog.find(filter)
+      .populate('adminId', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Math.max(Number(limit) || 100, 1), 500));
+
+    res.json({ success: true, logs });
+  } catch (error) {
+    console.error('Get activity logs error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 app.get('/api/admin/ussd/history', auth, adminAuth, withDb(async (req, res) => {
   try {
     const history = await SystemUSSDCode.find()
@@ -1079,6 +1263,7 @@ app.post('/api/admin/ussd/set', auth, adminAuth, withDb(async (req, res) => {
       createdBy: req.user._id
     });
     await newCode.save();
+    await logAdminAction({ req, action: 'Created USSD code', targetType: 'USSD', targetId: newCode._id, details: { code: newCode.code, receiverName } });
 
     res.json({ 
       success: true, 
@@ -1143,6 +1328,7 @@ app.post('/api/admin/deposits/approve/:id', auth, adminAuth, withDb(async (req, 
     transaction.processedBy = req.user._id;
     transaction.processedAt = new Date();
     await transaction.save();
+    await logAdminAction({ req, action: 'Approved deposit', targetType: 'Transaction', targetId: transaction._id, details: { amount: transaction.amount, userId: transaction.userId } });
     
     // Referral bonus logic
     const userDeposits = await Transaction.countDocuments({ 
@@ -1240,6 +1426,7 @@ app.post('/api/admin/withdrawals/complete/:id', auth, adminAuth, withDb(async (r
     transaction.processedBy = req.user._id;
     transaction.processedAt = new Date();
     await transaction.save();
+    await logAdminAction({ req, action: 'Completed withdrawal', targetType: 'Transaction', targetId: transaction._id, details: { amount: transaction.amount, userId: transaction.userId } });
     
     res.json({ 
       success: true, 
