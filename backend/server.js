@@ -40,7 +40,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ==================== FIXED: MongoDB Connection with Caching ====================
+// ==================== MongoDB Connection with Caching ====================
 let cachedDb = null;
 let isConnecting = false;
 let connectionPromise = null;
@@ -117,6 +117,7 @@ const userSchema = new mongoose.Schema({
   },
   balance: { type: Number, default: 0 },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  isActive: { type: Boolean, default: true }, // Added for user status
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   referralBonusEarned: { type: Number, default: 0 },
@@ -232,7 +233,8 @@ const createDefaultAdmin = async () => {
         password: hashedPassword,
         phone: '0788000000',
         role: 'admin',
-        balance: 0
+        balance: 0,
+        isActive: true
       });
       await admin.save();
       console.log('='.repeat(50));
@@ -281,7 +283,7 @@ app.post('/api/auth/register', withDb(async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ name, email, password: hashedPassword, phone, role: 'user' });
+    const user = new User({ name, email, password: hashedPassword, phone, role: 'user', isActive: true });
     await user.save();
 
     const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET);
@@ -324,7 +326,8 @@ app.post('/api/auth/register-with-referral', withDb(async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({
       name, email, password: hashedPassword, phone, role: 'user',
-      referredBy: referrer ? referrer._id : null
+      referredBy: referrer ? referrer._id : null,
+      isActive: true
     });
     await user.save();
 
@@ -368,6 +371,11 @@ app.post('/api/auth/login', withDb(async (req, res) => {
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(401).json({ message: 'Your account has been deactivated. Please contact support.' });
     }
     
     const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET);
@@ -512,7 +520,7 @@ app.get('/api/transfer/search', auth, withDb(async (req, res) => {
     const { phone } = req.query;
     if (!phone) return res.status(400).json({ message: 'Phone number is required' });
     const cleanPhone = phone.replace(/\D/g, '');
-    const user = await User.findOne({ phone: cleanPhone, role: 'user' }).select('name phone');
+    const user = await User.findOne({ phone: cleanPhone, role: 'user', isActive: true }).select('name phone');
     if (!user) return res.status(404).json({ message: 'User not found' });
     if (user._id.toString() === req.user._id.toString()) return res.status(400).json({ message: 'Cannot transfer to yourself' });
     res.json({ success: true, user: { name: user.name, phone: user.phone } });
@@ -529,7 +537,7 @@ app.post('/api/transfer/send', auth, withDb(async (req, res) => {
     if (amountNum < 100) return res.status(400).json({ message: 'Minimum transfer is 100 RWF' });
     if (req.user.balance < amountNum) return res.status(400).json({ message: 'Insufficient balance' });
     const cleanPhone = recipientPhone.replace(/\D/g, '');
-    const recipient = await User.findOne({ phone: cleanPhone, role: 'user' });
+    const recipient = await User.findOne({ phone: cleanPhone, role: 'user', isActive: true });
     if (!recipient) return res.status(404).json({ message: 'Recipient not found' });
     
     const sender = await User.findById(req.user._id);
@@ -579,7 +587,292 @@ app.get('/api/balance', auth, withDb(async (req, res) => {
   }
 }));
 
-// ==================== ADMIN ROUTES ====================
+// ==================== ADMIN USER MANAGEMENT ROUTES ====================
+
+// Get all users with pagination and filtering
+app.get('/api/admin/users', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search, role, status } = req.query;
+    
+    let query = {};
+    
+    // Filter by role
+    if (role && role !== 'all') {
+      query.role = role;
+    }
+    
+    // Filter by status (isActive)
+    if (status && status !== 'all') {
+      query.isActive = status === 'active';
+    }
+    
+    // Search by name, email, or phone
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const [users, totalUsers] = await Promise.all([
+      User.find(query)
+        .select('-password')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      User.countDocuments(query)
+    ]);
+    
+    res.json({
+      success: true,
+      users,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalUsers,
+        pages: Math.ceil(totalUsers / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Get single user by ID
+app.get('/api/admin/users/:userId', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Get user statistics
+    const transactions = await Transaction.find({ userId: user._id });
+    const totalDeposits = transactions
+      .filter(t => t.type === 'deposit' && t.status === 'approved')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const totalWithdrawals = transactions
+      .filter(t => t.type === 'withdrawal' && t.status === 'completed')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const referralBonuses = await ReferralBonus.find({ referrerId: user._id, status: 'paid' });
+    const totalReferralEarnings = referralBonuses.reduce((sum, b) => sum + b.bonusAmount, 0);
+    
+    res.json({
+      success: true,
+      user,
+      stats: {
+        totalDeposits,
+        totalWithdrawals,
+        totalReferralEarnings,
+        referralCount: user.referralCount || 0
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Update user status (activate/deactivate)
+app.patch('/api/admin/users/:userId/status', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    const { userId } = req.params;
+    
+    // Prevent admin from deactivating themselves
+    if (userId === req.user._id.toString() && isActive === false) {
+      return res.status(400).json({ message: 'You cannot deactivate your own account' });
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { isActive },
+      { new: true, runValidators: true }
+    ).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({
+      success: true,
+      message: `User ${isActive ? 'activated' : 'deactivated'} successfully`,
+      user
+    });
+  } catch (error) {
+    console.error('Error updating user status:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Update user role
+app.patch('/api/admin/users/:userId/role', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { role } = req.body;
+    const { userId } = req.params;
+    
+    // Validate role
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role. Must be "user" or "admin"' });
+    }
+    
+    // Prevent admin from changing their own role
+    if (userId === req.user._id.toString()) {
+      return res.status(400).json({ message: 'You cannot change your own role' });
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { role },
+      { new: true, runValidators: true }
+    ).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({
+      success: true,
+      message: `User role updated to ${role} successfully`,
+      user
+    });
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Delete user (admin only)
+app.delete('/api/admin/users/:userId', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Prevent admin from deleting themselves
+    if (userId === req.user._id.toString()) {
+      return res.status(400).json({ message: 'You cannot delete your own account' });
+    }
+    
+    const user = await User.findByIdAndDelete(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Also delete user's transactions and referral bonuses
+    await Promise.all([
+      Transaction.deleteMany({ userId }),
+      ReferralBonus.deleteMany({ $or: [{ referrerId: userId }, { referredUserId: userId }] })
+    ]);
+    
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Get user's transaction history (admin view)
+app.get('/api/admin/users/:userId/transactions', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 50, skip = 0 } = req.query;
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    const transactions = await Transaction.find({ userId })
+      .sort({ createdAt: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit));
+    
+    const total = await Transaction.countDocuments({ userId });
+    
+    res.json({
+      success: true,
+      transactions,
+      pagination: {
+        total,
+        limit: parseInt(limit),
+        skip: parseInt(skip)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user transactions:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Activate USSD code (re-activate expired code)
+app.post('/api/admin/ussd/activate/:ussdId', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const { ussdId } = req.params;
+    const { validHours = 24 } = req.body;
+    
+    const ussdCode = await SystemUSSDCode.findById(ussdId);
+    if (!ussdCode) {
+      return res.status(404).json({ message: 'USSD code not found' });
+    }
+    
+    // Deactivate all other active USSD codes
+    await SystemUSSDCode.updateMany(
+      { _id: { $ne: ussdId }, isActive: true },
+      { isActive: false }
+    );
+    
+    // Reactivate this code with new expiry
+    const expiresAt = new Date(Date.now() + validHours * 60 * 60 * 1000);
+    ussdCode.isActive = true;
+    ussdCode.expiresAt = expiresAt;
+    await ussdCode.save();
+    
+    res.json({
+      success: true,
+      message: 'USSD code activated successfully',
+      code: ussdCode
+    });
+  } catch (error) {
+    console.error('Error activating USSD code:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// Reject deposit
+app.post('/api/admin/deposits/reject/:id', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+    
+    if (transaction.status !== 'pending') {
+      return res.status(400).json({ message: 'Transaction already processed' });
+    }
+    
+    transaction.status = 'rejected';
+    transaction.processedBy = req.user._id;
+    transaction.processedAt = new Date();
+    transaction.description = 'Deposit rejected by admin';
+    await transaction.save();
+    
+    res.json({
+      success: true,
+      message: 'Deposit rejected successfully'
+    });
+  } catch (error) {
+    console.error('Error rejecting deposit:', error);
+    res.status(500).json({ message: error.message });
+  }
+}));
+
+// ==================== OTHER ADMIN ROUTES ====================
 
 app.get('/api/admin/stats', auth, adminAuth, withDb(async (req, res) => {
   try {
@@ -588,7 +881,7 @@ app.get('/api/admin/stats', auth, adminAuth, withDb(async (req, res) => {
     const pendingWithdrawals = await Transaction.countDocuments({ type: 'withdrawal', status: 'pending' });
     const activeUSSD = await SystemUSSDCode.findOne({ isActive: true, expiresAt: { $gt: new Date() } });
     const totalVolume = await Transaction.aggregate([{ $match: { status: 'approved' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
-    res.json({ success: true, stats: { totalUsers, pendingDeposits, pendingWithdrawals, hasActiveUSSD: !!activeUSSD, activeUSSDCode: activeUSSD?.code || null, activeUSSDExpiry: activeUSSD?.expiresAt || null, totalVolume: totalVolume[0]?.total || 0 } });
+    res.json({ success: true, stats: { totalUsers, pendingDeposits, pendingWithdrawals, hasActiveUSSD: !!activeUSSD, activeUSSDCode: activeUSSD?.code || null, activeUSSDReceiverName: activeUSSD?.receiverName || null, activeUSSDExpiry: activeUSSD?.expiresAt || null, totalVolume: totalVolume[0]?.total || 0 } });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -765,10 +1058,24 @@ app.get('/', (req, res) => {
   res.json({ message: 'SwiftPay API is running', version: '1.0.0' });
 });
 
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ message: `Route ${req.method} ${req.path} not found` });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Global error:', err);
+  res.status(500).json({ 
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
 // ==================== EXPORT FOR VERCEL ====================
 // Initialize admin only in development
 if (process.env.NODE_ENV !== 'production' && process.env.CREATE_ADMIN === 'true') {
   createDefaultAdmin();
 }
 
-module.exports = app;  
+module.exports = app;
