@@ -81,10 +81,10 @@ export const AuthProvider = ({ children }) => {
         
         setUser(userData);
         setIsAuthenticated(true);
-        return { success: true };
+        return userData;
       }
       
-      return { success: false, message: 'Login failed' };
+      throw new Error(response.data.message || 'Login failed');
     } catch (error) {
       console.error('Login error:', error);
       return { 
