@@ -53,7 +53,7 @@ function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [copiedCodeId, setCopiedCodeId] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null);   
   const [transactionFilter, setTransactionFilter] = useState({ type: '', status: '' });
   const [activityLogs, setActivityLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
