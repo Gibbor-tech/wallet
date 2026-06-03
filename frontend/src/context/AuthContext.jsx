@@ -5,8 +5,8 @@ const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
-// 🛠️ Detects backend URL. Falls back to localhost if env variable is missing.
-const API_BASE_URL = import.meta.env?.VITE_API_URL|| 'http://localhost:5000';
+// Remove trailing slash
+const API_BASE_URL = (import.meta.env?.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -24,6 +24,7 @@ export const AuthProvider = ({ children }) => {
 
   const fetchUser = async () => {
     try {
+      // Use template literal without extra slash
       const response = await axios.get(`${API_BASE_URL}/api/auth/me`);
       if (response.data.success) {
         setUser(response.data.user);
@@ -50,7 +51,11 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (userData) => {
-    const response = await axios.post(`${API_BASE_URL}/api/auth/register`, userData);
+    let endpoint = `${API_BASE_URL}/api/auth/register`;
+    if (userData.referralCode) {
+      endpoint = `${API_BASE_URL}/api/auth/register-with-referral`;
+    }
+    const response = await axios.post(endpoint, userData);
     if (response.data.success) {
       const { token, user } = response.data;
       setToken(token);

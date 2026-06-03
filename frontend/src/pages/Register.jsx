@@ -102,7 +102,8 @@ function Register() {
     try {
       let response;
       if (referralCode) {
-        response = await axios.post('http://localhost:5000/api/auth/register-with-referral', {
+        const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+        const response = await axios.post(`${API_BASE_URL}/api/auth/register-with-referral`, {
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
@@ -110,7 +111,8 @@ function Register() {
           referralCode: referralCode
         });
       } else {
-        response = await axios.post('http://localhost:5000/api/auth/register', {
+        const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+        response = await axios.post(`${API_BASE_URL}/api/auth/register` , {
           name: formData.name,
           email: formData.email,
           phone: formData.phone,

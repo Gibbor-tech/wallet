@@ -7,14 +7,16 @@ require('dotenv').config();
 const crypto = require('crypto');
 const app = express();
 
-// Middleware
+// Update CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()),
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://frontend-wallet-one.vercel.app', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
+
+// Add OPTIONS handler for preflight requests
+app.options('*', cors());
 
 // MongoDB Connection
 const MONGODB_URI = process.env.MONGODB_URI; 
@@ -264,7 +266,7 @@ app.post('/api/auth/register-with-referral', async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
