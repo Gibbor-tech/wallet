@@ -9,6 +9,9 @@ import {
   FiUser, FiPhone, FiFilter, FiTrendingUp, FiTrendingDown
 } from 'react-icons/fi';
 
+// Get API URL from environment variable
+const API_BASE_URL = (import.meta.env?.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+
 function AdminDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -54,11 +57,11 @@ function AdminDashboard() {
     setLoading(true);
     try {
       const [statsRes, historyRes, depositsRes, withdrawalsRes, usersRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/admin/stats'),
-        axios.get('http://localhost:5000/api/admin/ussd/history'),
-        axios.get('http://localhost:5000/api/admin/deposits/pending'),
-        axios.get('http://localhost:5000/api/admin/withdrawals/pending'),
-        axios.get('http://localhost:5000/api/admin/users')
+        axios.get(`${API_BASE_URL}/api/admin/stats`),
+        axios.get(`${API_BASE_URL}/api/admin/ussd/history`),
+        axios.get(`${API_BASE_URL}/api/admin/deposits/pending`),
+        axios.get(`${API_BASE_URL}/api/admin/withdrawals/pending`),
+        axios.get(`${API_BASE_URL}/api/admin/users`)
       ]);
       
       if (statsRes.data.success) setStats(statsRes.data.stats);
@@ -68,6 +71,14 @@ function AdminDashboard() {
       if (usersRes.data.success) setUsers(usersRes.data.users);
     } catch (error) {
       console.error('Error fetching data:', error);
+      // Show user-friendly error message
+      if (error.response?.status === 401) {
+        alert('Session expired. Please login again.');
+        logout();
+        navigate('/login');
+      } else {
+        alert('Error loading data. Please refresh the page.');
+      }
     } finally {
       setLoading(false);
     }
@@ -76,7 +87,7 @@ function AdminDashboard() {
   const handleSetUSSDCode = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:5000/api/admin/ussd/set', {
+      await axios.post(`${API_BASE_URL}/api/admin/ussd/set`, {
         ussdCode: newUssd.code,
         receiverName: newUssd.receiverName,
         validHours: parseInt(newUssd.validHours)
@@ -93,7 +104,7 @@ function AdminDashboard() {
   const handleApprove = async (depositId) => {
     if (!window.confirm("Approve this deposit and credit wallet?")) return;
     try {
-      await axios.post(`http://localhost:5000/api/admin/deposits/approve/${depositId}`);
+      await axios.post(`${API_BASE_URL}/api/admin/deposits/approve/${depositId}`);
       alert("Deposit approved successfully");
       fetchAllData();
     } catch (error) {
@@ -104,7 +115,7 @@ function AdminDashboard() {
   const handleReject = async (depositId) => {
     if (!window.confirm("Reject this deposit?")) return;
     try {
-      await axios.post(`http://localhost:5000/api/admin/deposits/reject/${depositId}`);
+      await axios.post(`${API_BASE_URL}/api/admin/deposits/reject/${depositId}`);
       alert("Deposit rejected");
       fetchAllData();
     } catch (error) {
@@ -115,7 +126,7 @@ function AdminDashboard() {
   const handleCompleteWithdrawal = async (withdrawalId) => {
     if (!window.confirm("Mark this withdrawal as completed?")) return;
     try {
-      await axios.post(`http://localhost:5000/api/admin/withdrawals/complete/${withdrawalId}`);
+      await axios.post(`${API_BASE_URL}/api/admin/withdrawals/complete/${withdrawalId}`);
       alert("Withdrawal completed");
       fetchAllData();
     } catch (error) {
@@ -126,7 +137,7 @@ function AdminDashboard() {
   const handleActivateUSSD = async (ussdId) => {
     if (!window.confirm("Activate this USSD code?")) return;
     try {
-      await axios.post(`http://localhost:5000/api/admin/ussd/activate/${ussdId}`);
+      await axios.post(`${API_BASE_URL}/api/admin/ussd/activate/${ussdId}`);
       alert('USSD code activated successfully');
       fetchAllData();
     } catch (error) {
@@ -138,7 +149,7 @@ function AdminDashboard() {
     if (!window.confirm(`Are you sure you want to ${isActive ? 'activate' : 'deactivate'} this user?`)) return;
     setUserActionLoading(userId);
     try {
-      await axios.patch(`http://localhost:5000/api/admin/users/${userId}/status`, { isActive });
+      await axios.patch(`${API_BASE_URL}/api/admin/users/${userId}/status`, { isActive });
       alert(`User ${isActive ? 'activated' : 'deactivated'} successfully`);
       fetchAllData();
     } catch (error) {
@@ -152,7 +163,7 @@ function AdminDashboard() {
     if (!window.confirm(`Change role to ${role}?`)) return;
     setUserActionLoading(userId);
     try {
-      await axios.patch(`http://localhost:5000/api/admin/users/${userId}/role`, { role });
+      await axios.patch(`${API_BASE_URL}/api/admin/users/${userId}/role`, { role });
       alert('User role updated successfully');
       fetchAllData();
     } catch (error) {
@@ -271,14 +282,6 @@ function AdminDashboard() {
           >
             <FiEye size={18} />
             <span className="text-sm">All Transactions</span>
-          </button>
-
-          <button 
-            onClick={() => navigate('/admin/users')} 
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-600 hover:bg-gray-50 transition"
-          >
-            <FiUsers size={18} />
-            <span className="text-sm">Manage Users</span>
           </button>
         </nav>
 
@@ -425,18 +428,18 @@ function AdminDashboard() {
                 </thead>
                 <tbody>
                   {pendingDeposits.length === 0 ? (
-                    <tr>
+                    <tr className="border-t border-gray-100">
                       <td colSpan="5" className="text-center py-12 text-gray-500">No pending deposits</td>
                     </tr>
                   ) : (
                     pendingDeposits.map(deposit => (
                       <tr key={deposit._id} className="border-t border-gray-100 hover:bg-gray-50 transition">
                         <td className="px-5 py-4">
-                          <p className="font-medium text-gray-900">@{deposit.userId?.name}</p>
+                          <p className="font-medium text-gray-900">{deposit.userId?.name}</p>
                           <p className="text-xs text-gray-500">{deposit.userId?.phone}</p>
                         </td>
                         <td className="px-5 py-4">
-                          <span className="font-semibold text-emerald-600">+RWF {deposit.amount?.toLocaleString()}</span>
+                          <span className="font-semibold text-emerald-600">RWF {deposit.amount?.toLocaleString()}</span>
                         </td>
                         <td className="px-5 py-4">
                           <div>
@@ -496,7 +499,7 @@ function AdminDashboard() {
                     {pendingWithdrawals.map(w => (
                       <tr key={w._id} className="border-t border-gray-100 hover:bg-gray-50 transition">
                         <td className="px-5 py-4">
-                          <p className="font-medium text-gray-900">@{w.userId?.name}</p>
+                          <p className="font-medium text-gray-900">{w.userId?.name}</p>
                           <p className="text-xs text-gray-500">{w.userId?.phone}</p>
                         </td>
                         <td className="px-5 py-4">
@@ -504,7 +507,7 @@ function AdminDashboard() {
                           <p className="text-xs text-gray-500">{w.receiverPhone}</p>
                         </td>
                         <td className="px-5 py-4">
-                          <span className="font-semibold text-red-600">-RWF {w.amount?.toLocaleString()}</span>
+                          <span className="font-semibold text-red-600">RWF {w.amount?.toLocaleString()}</span>
                         </td>
                         <td className="px-5 py-4 text-sm text-gray-500">
                           {new Date(w.createdAt).toLocaleString()}
@@ -577,7 +580,7 @@ function AdminDashboard() {
                 </thead>
                 <tbody>
                   {filteredUsers.length === 0 ? (
-                    <tr>
+                    <tr className="border-t border-gray-100">
                       <td colSpan="7" className="text-center py-12 text-gray-500">No users match this filter</td>
                     </tr>
                   ) : (
@@ -664,7 +667,7 @@ function AdminDashboard() {
                 </thead>
                 <tbody>
                   {ussdHistory.length === 0 ? (
-                    <tr>
+                    <tr className="border-t border-gray-100">
                       <td colSpan="7" className="text-center py-12 text-gray-500">No USSD codes set yet</td>
                     </tr>
                   ) : (
@@ -674,13 +677,13 @@ function AdminDashboard() {
                         <tr key={code._id} className="border-t border-gray-100">
                           <td className="px-5 py-3">
                             <code className="font-mono font-bold text-blue-600">{code.code}</code>
-                          </td>
+                           </td>
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-1">
                               <FiUser size={12} className="text-gray-400" />
                               <span className="text-sm">{code.receiverName || 'N/A'}</span>
                             </div>
-                          </td>
+                           </td>
                           <td className="px-5 py-3">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                               isActive
@@ -689,10 +692,10 @@ function AdminDashboard() {
                             }`}>
                               {isActive ? 'Active' : 'Expired'}
                             </span>
-                          </td>
+                           </td>
                           <td className="px-5 py-3 text-sm text-gray-500">
                             {new Date(code.expiresAt).toLocaleString()}
-                          </td>
+                           </td>
                           <td className="px-5 py-3 text-sm">{code.createdBy?.name || 'N/A'}</td>
                           <td className="px-5 py-3 text-sm">{new Date(code.createdAt).toLocaleDateString()}</td>
                           <td className="px-5 py-3">
@@ -724,7 +727,7 @@ function AdminDashboard() {
                             {copiedCodeId === code._id && (
                               <div className="mt-2 text-[11px] text-emerald-600">Copied!</div>
                             )}
-                          </td>
+                           </td>
                         </tr>
                       );
                     })
