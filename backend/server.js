@@ -5,21 +5,46 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const crypto = require('crypto');
+
 const app = express();
 
-// Update CORS configuration
+// ==================== CRITICAL: Body Parser MUST be first ====================
+// These MUST come before any routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ==================== CORS Configuration ====================
+const allowedOrigins = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : ['https://frontend-wallet-one.vercel.app', 'http://localhost:3000'];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['https://frontend-wallet-one.vercel.app', 'http://localhost:3000'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200
 }));
 
-// Add OPTIONS handler for preflight requests
+// Handle preflight requests
 app.options('*', cors());
 
-// MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI; 
+// Debug middleware to log all requests (remove in production if needed)
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path} - Body:`, req.body);
+  next();
+});
+
+// ==================== MongoDB Connection ====================
+const MONGODB_URI = process.env.MONGODB_URI;
 
 mongoose.connect(MONGODB_URI)
   .then(() => console.log('MongoDB connected successfully'))
@@ -52,7 +77,7 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Generate referral code using crypto.randomBytes()
-userSchema.pre('save', async function () {
+userSchema.pre('save', async function() {
   if (!this.referralCode) {
     let code;
     let exists = true;
@@ -60,21 +85,16 @@ userSchema.pre('save', async function () {
 
     while (exists && attempts < 10) {
       code = crypto.randomBytes(6).toString('hex').toUpperCase();
-
-      const existingUser = await mongoose.model('User').findOne({
-        referralCode: code
-      });
-
+      const existingUser = await mongoose.model('User').findOne({ referralCode: code });
       if (!existingUser) {
         exists = false;
       }
-
       attempts++;
     }
-
     this.referralCode = code;
   }
 });
+
 const User = mongoose.model('User', userSchema);
 
 // Referral Bonus Model
@@ -92,10 +112,9 @@ const referralBonusSchema = new mongoose.Schema({
 const ReferralBonus = mongoose.model('ReferralBonus', referralBonusSchema);
 
 // System USSD Code Model
-// System USSD Code Model - Updated with receiverName
 const systemUSSDCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
-  receiverName: { type: String, required: true }, // New field
+  receiverName: { type: String, required: true },
   isActive: { type: Boolean, default: true },
   expiresAt: { type: Date, required: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -183,6 +202,8 @@ const createDefaultAdmin = async () => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
+    
+    console.log('Register request body:', req.body);
 
     if (!name || !email || !password || !phone) {
       return res.status(400).json({ message: 'All fields are required' });
@@ -214,6 +235,8 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/register-with-referral', async (req, res) => {
   try {
     const { name, email, password, phone, referralCode } = req.body;
+    
+    console.log('Register with referral request body:', req.body);
 
     if (!name || !email || !password || !phone) {
       return res.status(400).json({ message: 'All fields are required' });
@@ -268,18 +291,28 @@ app.post('/api/auth/register-with-referral', async (req, res) => {
 // Login
 app.post('/api/auth/login', async (req, res) => {
   try {
+    console.log('Login request body:', req.body);
+    
     const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+    
     const user = await User.findOne({ email });
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET );
+    
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET);
+    
     res.json({
       success: true,
       token,
       user: { id: user._id, name: user.name, email: user.email, phone: user.phone, balance: user.balance, role: user.role }
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -339,6 +372,7 @@ app.get('/api/ussd/active', auth, async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+
 // ==================== DEPOSIT ROUTES ====================
 
 app.post('/api/deposit/submit', auth, async (req, res) => {
@@ -432,7 +466,6 @@ app.post('/api/transfer/send', auth, async (req, res) => {
     const recipient = await User.findOne({ phone: cleanPhone, role: 'user' });
     if (!recipient) return res.status(404).json({ message: 'Recipient not found' });
     
-    // Use findByIdAndUpdate to avoid version conflicts
     const sender = await User.findById(req.user._id);
     sender.balance -= amountNum;
     await sender.save();
@@ -516,7 +549,6 @@ app.post('/api/admin/ussd/set', auth, adminAuth, async (req, res) => {
       return res.status(400).json({ message: 'Valid hours must be a number greater than 0' });
     }
 
-    // Deactivate any currently active USSD codes before setting a new one.
     await SystemUSSDCode.updateMany({ isActive: true }, { isActive: false });
 
     const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
@@ -562,7 +594,6 @@ app.post('/api/admin/deposits/approve/:id', auth, adminAuth, async (req, res) =>
     transaction.processedAt = new Date();
     await transaction.save();
     
-    // Referral bonus logic
     const userDeposits = await Transaction.countDocuments({ userId: transaction.userId, type: 'deposit', status: 'approved' });
     if (userDeposits === 1 && user.referredBy && transaction.amount >= 1000) {
       const pendingBonus = await ReferralBonus.findOne({ referredUserId: transaction.userId, status: 'pending' });
@@ -638,13 +669,30 @@ app.get('/api/admin/transactions/all', auth, adminAuth, async (req, res) => {
   }
 });
 
+// Health check endpoint for Vercel
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ message: 'SwiftPay API is running', version: '1.0.0' });
+});
+
 // ==================== START SERVER ====================
 
 const PORT = process.env.PORT || 5000;
 
-createDefaultAdmin().then(() => {
-  app.listen(PORT, () => {
-    console.log(`\n🚀 Server running on port ${PORT}`);
-    console.log(`📍 http://localhost:${PORT}`);
+// For Vercel serverless deployment
+if (process.env.NODE_ENV !== 'production') {
+  createDefaultAdmin().then(() => {
+    app.listen(PORT, () => {
+      console.log(`\n🚀 Server running on port ${PORT}`);
+      console.log(`📍 http://localhost:${PORT}`);
+      console.log(`📍 API available at http://localhost:${PORT}/api`);
+    });
   });
-});
+}
+
+// Export for Vercel
+module.exports = app;
