@@ -6,7 +6,7 @@ const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
 // 🛠️ Detects backend URL. Falls back to localhost if env variable is missing.
-const API_BASE_URL = import.meta.env?.VITE_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env?.VITE_API_URL|| 'http://localhost:5000';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

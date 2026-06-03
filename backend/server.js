@@ -132,7 +132,7 @@ const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) throw new Error();
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) throw new Error();
     req.user = user;
@@ -196,7 +196,7 @@ app.post('/api/auth/register', async (req, res) => {
     const user = new User({ name, email, password: hashedPassword, phone, role: 'user' });
     await user.save();
 
-    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET);
 
     res.status(201).json({
       success: true,
@@ -250,7 +250,7 @@ app.post('/api/auth/register-with-referral', async (req, res) => {
       await pendingBonus.save();
     }
 
-    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET);
 
     res.status(201).json({
       success: true,
@@ -272,7 +272,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET || 'your_secret_key');
+    const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET );
     res.json({
       success: true,
       token,
