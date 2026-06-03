@@ -1,81 +1,120 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api'; // Use your API service
 
 const AuthContext = createContext();
 
-export const useAuth = () => useContext(AuthContext);
-
-// Remove trailing slash
-const API_BASE_URL = (import.meta.env?.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
+  // Set up axios interceptor to always include token
   useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
-  }, [token]);
+    const interceptor = api.interceptors.request.use(
+      (config) => {
+        const currentToken = localStorage.getItem('token');
+        if (currentToken) {
+          config.headers.Authorization = `Bearer ${currentToken}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
 
-  const fetchUser = async () => {
-    try {
-      // Use template literal without extra slash
-      const response = await axios.get(`${API_BASE_URL}/api/auth/me`);
-      if (response.data.success) {
-        setUser(response.data.user);
+    return () => {
+      api.interceptors.request.eject(interceptor);
+    };
+  }, []);
+
+  // Check if user is logged in on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const storedToken = localStorage.getItem('token');
+      
+      if (!storedToken) {
+        setLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error('Error fetching user:', error);
-      logout();
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      try {
+        // Set the token in axios defaults
+        api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        
+        // Get current user info
+        const response = await api.get('/api/auth/me');
+        
+        if (response.data.success) {
+          setUser(response.data.user);
+        } else {
+          // Token invalid, clear it
+          localStorage.removeItem('token');
+          delete api.defaults.headers.common['Authorization'];
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        // Clear invalid token
+        localStorage.removeItem('token');
+        delete api.defaults.headers.common['Authorization'];
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
 
   const login = async (email, password) => {
-    const response = await axios.post(`${API_BASE_URL}/api/auth/login`, { email, password });
-    if (response.data.success) {
-      const { token, user } = response.data;
-      setToken(token);
-      setUser(user);
-      localStorage.setItem('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      return user;
+    try {
+      const response = await api.post('/api/auth/login', { email, password });
+      
+      if (response.data.success) {
+        const { token, user: userData } = response.data;
+        
+        // Store token
+        localStorage.setItem('token', token);
+        setToken(token);
+        
+        // Set default auth header
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        
+        setUser(userData);
+        return { success: true };
+      }
+      
+      return { success: false, message: 'Login failed' };
+    } catch (error) {
+      return { 
+        success: false, 
+        message: error.response?.data?.message || 'Login failed' 
+      };
     }
-    throw new Error('Login failed');
-  };
-
-  const register = async (userData) => {
-    let endpoint = `${API_BASE_URL}/api/auth/register`;
-    if (userData.referralCode) {
-      endpoint = `${API_BASE_URL}/api/auth/register-with-referral`;
-    }
-    const response = await axios.post(endpoint, userData);
-    if (response.data.success) {
-      const { token, user } = response.data;
-      setToken(token);
-      setUser(user);
-      localStorage.setItem('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      return user;
-    }
-    throw new Error('Registration failed');
   };
 
   const logout = () => {
+    localStorage.removeItem('token');
     setToken(null);
     setUser(null);
-    localStorage.removeItem('token');
-    delete axios.defaults.headers.common['Authorization'];
+    delete api.defaults.headers.common['Authorization'];
+  };
+
+  const value = {
+    user,
+    login,
+    logout,
+    loading,
+    isAuthenticated: !!user
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

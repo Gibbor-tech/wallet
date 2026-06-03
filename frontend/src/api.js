@@ -13,9 +13,16 @@ const api = axios.create({
   withCredentials: false,
 });
 
-// Request interceptor - FIX THE DOUBLE SLASH ISSUE
+// Request interceptor - Add token to every request
 api.interceptors.request.use(
   (config) => {
+    // Get token from localStorage
+    const token = localStorage.getItem('token');
+    
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
     // Ensure URL doesn't have double slashes
     if (config.url) {
       // Remove any leading slash from the URL path
@@ -28,22 +35,33 @@ api.interceptors.request.use(
       config.url = config.url.replace(/([^:]\/)\/+/g, '$1');
     }
 
-    // Add authorization token if available
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
     if (import.meta.env.DEV) {
       console.log('🚀 API Request:', {
         method: config.method?.toUpperCase(),
         url: config.url,
+        hasToken: !!token
       });
     }
 
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor - Handle 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token expired or invalid
+      localStorage.removeItem('token');
+      // Optionally redirect to login
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+        window.location.href = '/login';
+      }
+    }
     return Promise.reject(error);
   }
 );
