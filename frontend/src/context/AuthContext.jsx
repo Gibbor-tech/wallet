@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import api from '../api'; // Use your API service
+import api from '../api';
 
 const AuthContext = createContext();
 
@@ -14,55 +14,48 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(localStorage.getItem('token'));
-
-  // Set up axios interceptor to always include token
-  useEffect(() => {
-    const interceptor = api.interceptors.request.use(
-      (config) => {
-        const currentToken = localStorage.getItem('token');
-        if (currentToken) {
-          config.headers.Authorization = `Bearer ${currentToken}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
-    return () => {
-      api.interceptors.request.eject(interceptor);
-    };
-  }, []);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Check if user is logged in on mount
   useEffect(() => {
     const checkAuth = async () => {
-      const storedToken = localStorage.getItem('token');
+      const token = localStorage.getItem('token');
       
-      if (!storedToken) {
+      console.log('Checking auth, token exists:', !!token);
+      
+      if (!token) {
         setLoading(false);
+        setIsAuthenticated(false);
+        setUser(null);
         return;
       }
 
       try {
         // Set the token in axios defaults
-        api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
         // Get current user info
         const response = await api.get('/api/auth/me');
         
-        if (response.data.success) {
+        console.log('Auth check response:', response.data);
+        
+        if (response.data.success && response.data.user) {
           setUser(response.data.user);
+          setIsAuthenticated(true);
         } else {
           // Token invalid, clear it
           localStorage.removeItem('token');
           delete api.defaults.headers.common['Authorization'];
+          setIsAuthenticated(false);
+          setUser(null);
         }
       } catch (error) {
         console.error('Auth check failed:', error);
         // Clear invalid token
         localStorage.removeItem('token');
         delete api.defaults.headers.common['Authorization'];
+        setIsAuthenticated(false);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -75,22 +68,25 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.post('/api/auth/login', { email, password });
       
+      console.log('Login response:', response.data);
+      
       if (response.data.success) {
         const { token, user: userData } = response.data;
         
         // Store token
         localStorage.setItem('token', token);
-        setToken(token);
         
         // Set default auth header
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         
         setUser(userData);
+        setIsAuthenticated(true);
         return { success: true };
       }
       
       return { success: false, message: 'Login failed' };
     } catch (error) {
+      console.error('Login error:', error);
       return { 
         success: false, 
         message: error.response?.data?.message || 'Login failed' 
@@ -100,9 +96,9 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
     delete api.defaults.headers.common['Authorization'];
+    setUser(null);
+    setIsAuthenticated(false);
   };
 
   const value = {
@@ -110,7 +106,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     loading,
-    isAuthenticated: !!user
+    isAuthenticated
   };
 
   return (
