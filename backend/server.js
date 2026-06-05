@@ -273,7 +273,7 @@ const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
+      return res.status(401).json({ success: false, message: 'No token provided' });
     }
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
@@ -281,19 +281,19 @@ const auth = async (req, res, next) => {
     await connectToDatabase();
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) {
-      return res.status(401).json({ message: 'User not found' });
+      return res.status(401).json({ success: false, message: 'User not found' });
     }
     req.user = user;
     next();
   } catch (error) {
     console.error('Auth error:', error);
     if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ message: 'Invalid token' });
+      return res.status(401).json({ success: false, message: 'Invalid token' });
     }
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Token expired' });
+      return res.status(401).json({ success: false, message: 'Token expired' });
     }
-    res.status(401).json({ message: 'Please authenticate' });
+    res.status(401).json({ success: false, message: 'Please authenticate' });
   }
 };
 
@@ -1199,15 +1199,25 @@ app.delete('/api/admin/users/:id', auth, adminAuth, withDb(async (req, res) => {
 
 app.get('/api/admin/activity-logs', auth, adminAuth, withDb(async (req, res) => {
   try {
-    const { action, targetType, limit = 100 } = req.query;
+    const { action, targetType, limit } = req.query;
     const filter = {};
     if (action) filter.action = new RegExp(action, 'i');
     if (targetType) filter.targetType = targetType;
 
+    // FIXED: Parse limit as integer with proper defaults
+    let pageLimit = 100; // default limit
+    if (limit) {
+      const parsedLimit = parseInt(limit, 10);
+      if (!isNaN(parsedLimit) && parsedLimit > 0) {
+        // Cap the limit between 1 and 500 for safety
+        pageLimit = Math.min(Math.max(parsedLimit, 1), 500);
+      }
+    }
+
     const logs = await ActivityLog.find(filter)
       .populate('adminId', 'name email')
       .sort({ createdAt: -1 })
-      .limit(Math.min(Math.max(Number(limit) || 100, 1), 500));
+      .limit(pageLimit);
 
     res.json({ success: true, logs });
   } catch (error) {
