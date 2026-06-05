@@ -585,7 +585,7 @@ app.post('/api/auth/login', withDb(async (req, res) => {
   }
 }));
 
-// Get current user
+// FIXED: Get current user - NOW includes role
 app.get('/api/auth/me', auth, withDb(async (req, res) => {
   res.json({
     success: true,
