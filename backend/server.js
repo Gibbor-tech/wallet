@@ -299,7 +299,10 @@ const auth = async (req, res, next) => {
 
 const adminAuth = async (req, res, next) => {
   if (req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Admin access required' });
+    return res.status(403).json({ 
+      success: false,
+      message: 'Admin access required' 
+    });
   }
   next();
 };
@@ -1517,7 +1520,7 @@ app.get('/', (req, res) => {
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: `Route ${req.originalUrl} not found`
+    message: `Route ${req.originalUrl} not found. This endpoint does not exist on the server.`
   });
 });
 
