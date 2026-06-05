@@ -276,12 +276,18 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'No token provided' });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET is not defined');
+    }
     
     await connectToDatabase();
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'User not found' });
+    }
+    if (!user.isActive) {
+      return res.status(401).json({ success: false, message: 'Account is deactivated' });
     }
     req.user = user;
     next();
@@ -314,20 +320,22 @@ const createDefaultAdmin = async () => {
     await connectToDatabase();
     const adminExists = await User.findOne({ role: 'admin' });
     if (!adminExists) {
-      const hashedPassword = await bcrypt.hash('admin123', 10);
+      // Change this password immediately in production!
+      const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'ChangeMe123!', 10);
       const admin = new User({
         name: 'System Administrator',
-        email: 'admin@wallet.com',
+        email: process.env.ADMIN_EMAIL || 'admin@swiftpay.com',
         password: hashedPassword,
-        phone: '0788000000',
+        phone: process.env.ADMIN_PHONE || '0788000000',
         role: 'admin',
-        balance: 1000000 // Give admin some balance for testing
+        balance: 1000000
       });
       await admin.save();
       console.log('='.repeat(50));
       console.log('✅ Default admin created successfully!');
-      console.log('📧 Email: admin@wallet.com');
-      console.log('🔑 Password: admin123');
+      console.log(`📧 Email: ${process.env.ADMIN_EMAIL || 'admin@swiftpay.com'}`);
+      console.log('🔑 Password: Use ADMIN_PASSWORD from env or default ChangeMe123!');
+      console.log('⚠️  PLEASE CHANGE DEFAULT PASSWORD IMMEDIATELY!');
       console.log('='.repeat(50));
     } else {
       console.log('Admin user already exists');
@@ -417,7 +425,7 @@ app.post('/api/auth/register', withDb(async (req, res) => {
 
     const token = jwt.sign(
       { userId: user._id, role: user.role }, 
-      process.env.JWT_SECRET || 'fallback_secret_key',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -425,7 +433,7 @@ app.post('/api/auth/register', withDb(async (req, res) => {
       success: true,
       token,
       user: {
-        id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -501,7 +509,7 @@ app.post('/api/auth/register-with-referral', withDb(async (req, res) => {
 
     const token = jwt.sign(
       { userId: user._id, role: user.role }, 
-      process.env.JWT_SECRET || 'fallback_secret_key',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -510,7 +518,7 @@ app.post('/api/auth/register-with-referral', withDb(async (req, res) => {
       message: referrer ? 'Account created! Your referrer gets 30% on your first deposit (min 1,000 RWF).' : 'Account created successfully!',
       token,
       user: {
-        id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -550,6 +558,13 @@ app.post('/api/auth/login', withDb(async (req, res) => {
       });
     }
     
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Account is deactivated. Please contact admin.' 
+      });
+    }
+    
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({ 
@@ -560,7 +575,7 @@ app.post('/api/auth/login', withDb(async (req, res) => {
     
     const token = jwt.sign(
       { userId: user._id, role: user.role }, 
-      process.env.JWT_SECRET || 'fallback_secret_key',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
     
@@ -568,7 +583,7 @@ app.post('/api/auth/login', withDb(async (req, res) => {
       success: true,
       token,
       user: {
-        id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -585,12 +600,12 @@ app.post('/api/auth/login', withDb(async (req, res) => {
   }
 }));
 
-// FIXED: Get current user - NOW includes role
+// Get current user
 app.get('/api/auth/me', auth, withDb(async (req, res) => {
   res.json({
     success: true,
     user: {
-      id: req.user._id,
+      _id: req.user._id,
       name: req.user.name,
       email: req.user.email,
       phone: req.user.phone,
@@ -729,7 +744,7 @@ app.post('/api/deposit/submit', auth, withDb(async (req, res) => {
       success: true, 
       message: 'Deposit request created successfully',
       transaction: {
-        id: transaction._id,
+        _id: transaction._id,
         amount: transaction.amount,
         ussdCode: activeUSSD.code,
         status: transaction.status
@@ -994,7 +1009,7 @@ app.get('/api/transactions', auth, withDb(async (req, res) => {
   try {
     const transactions = await Transaction.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
-      .limit(100); // Limit to last 100 transactions
+      .limit(100);
     
     res.json({ 
       success: true, 
@@ -1046,6 +1061,7 @@ app.get('/api/admin/stats', auth, adminAuth, withDb(async (req, res) => {
         pendingWithdrawals,
         hasActiveUSSD: !!activeUSSD,
         activeUSSDCode: activeUSSD?.code || null,
+        activeUSSDReceiverName: activeUSSD?.receiverName || null,
         activeUSSDExpiry: activeUSSD?.expiresAt || null,
         totalVolume: totalVolume[0]?.total || 0
       }
@@ -1204,12 +1220,10 @@ app.get('/api/admin/activity-logs', auth, adminAuth, withDb(async (req, res) => 
     if (action) filter.action = new RegExp(action, 'i');
     if (targetType) filter.targetType = targetType;
 
-    // FIXED: Parse limit as integer with proper defaults
-    let pageLimit = 100; // default limit
+    let pageLimit = 100;
     if (limit) {
       const parsedLimit = parseInt(limit, 10);
       if (!isNaN(parsedLimit) && parsedLimit > 0) {
-        // Cap the limit between 1 and 500 for safety
         pageLimit = Math.min(Math.max(parsedLimit, 1), 500);
       }
     }
@@ -1298,6 +1312,54 @@ app.post('/api/admin/ussd/set', auth, adminAuth, withDb(async (req, res) => {
   }
 }));
 
+// ==================== NEW: Activate USSD Endpoint ====================
+app.post('/api/admin/ussd/activate/:id', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const ussdCode = await SystemUSSDCode.findById(req.params.id);
+    if (!ussdCode) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'USSD code not found' 
+      });
+    }
+    
+    // Check if expired
+    if (new Date(ussdCode.expiresAt) <= new Date()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Cannot activate expired USSD code' 
+      });
+    }
+    
+    // Deactivate all other active codes
+    await SystemUSSDCode.updateMany({ isActive: true }, { isActive: false });
+    
+    // Activate this code
+    ussdCode.isActive = true;
+    await ussdCode.save();
+    
+    await logAdminAction({ 
+      req, 
+      action: 'Activated USSD code', 
+      targetType: 'USSD', 
+      targetId: ussdCode._id, 
+      details: { code: ussdCode.code } 
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'USSD code activated successfully',
+      code: ussdCode
+    });
+  } catch (error) {
+    console.error('Activate USSD error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+}));
+
 app.get('/api/admin/deposits/pending', auth, adminAuth, withDb(async (req, res) => {
   try {
     const deposits = await Transaction.find({ type: 'deposit', status: 'pending' })
@@ -1368,6 +1430,7 @@ app.post('/api/admin/deposits/approve/:id', auth, adminAuth, withDb(async (req, 
           
           referrer.balance += bonusAmount;
           referrer.referralCount = (referrer.referralCount || 0) + 1;
+          referrer.referralBonusEarned = (referrer.referralBonusEarned || 0) + bonusAmount;
           await referrer.save();
           
           const bonusTransaction = new Transaction({
@@ -1389,6 +1452,51 @@ app.post('/api/admin/deposits/approve/:id', auth, adminAuth, withDb(async (req, 
     });
   } catch (error) {
     console.error('Approve deposit error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+}));
+
+// ==================== NEW: Reject Deposit Endpoint ====================
+app.post('/api/admin/deposits/reject/:id', auth, adminAuth, withDb(async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Transaction not found' 
+      });
+    }
+    
+    if (transaction.type !== 'deposit' || transaction.status !== 'pending') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Cannot reject this transaction' 
+      });
+    }
+    
+    transaction.status = 'rejected';
+    transaction.processedBy = req.user._id;
+    transaction.processedAt = new Date();
+    transaction.description = 'Deposit request rejected by admin';
+    await transaction.save();
+    
+    await logAdminAction({ 
+      req, 
+      action: 'Rejected deposit', 
+      targetType: 'Transaction', 
+      targetId: transaction._id, 
+      details: { amount: transaction.amount, userId: transaction.userId } 
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Deposit rejected successfully'
+    });
+  } catch (error) {
+    console.error('Reject deposit error:', error);
     res.status(500).json({ 
       success: false,
       message: error.message 
@@ -1514,7 +1622,7 @@ app.get('/api/health', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     message: 'SwiftPay API is running',
-    version: '1.0.0',
+    version: '2.0.0',
     endpoints: {
       auth: '/api/auth',
       deposits: '/api/deposit',
@@ -1544,7 +1652,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ==================== START SERVER (only if not in serverless environment) ====================
+// ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 
 // Initialize admin only in development or when explicitly requested
@@ -1552,7 +1660,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.CREATE_ADMIN === 'true'
   createDefaultAdmin().catch(console.error);
 }
 
-// Start server only if this file is run directly (not imported as a module)
+// Start server only if this file is run directly
 if (require.main === module) {
   connectToDatabase().then(() => {
     app.listen(PORT, () => {
