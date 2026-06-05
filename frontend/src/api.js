@@ -2,6 +2,8 @@ import axios from 'axios';
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
 
+console.log('API Base URL:', API_BASE_URL); // Debug log
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
@@ -18,13 +20,16 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // Fix URL double slashes
+    // ✅ REMOVE the manual URL construction
+    // axios will automatically combine baseURL + config.url
+    
+    // Optional: Clean up any double slashes in the path only
     if (config.url) {
-      let cleanUrl = config.url.replace(/^\//, '');
-      config.url = `${API_BASE_URL}/${cleanUrl}`;
-      config.url = config.url.replace(/([^:]\/)\/+/g, '$1');
+      // Only clean the path, don't rebuild the whole URL
+      config.url = config.url.replace(/^\//, ''); // Remove leading slash if present
     }
     
+    console.log('Request URL:', `${config.baseURL}/${config.url}`); // Debug log
     return config;
   },
   (error) => Promise.reject(error)
